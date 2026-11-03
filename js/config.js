@@ -11,7 +11,7 @@ window.FIREBASE_CONFIG = {
 };
 
 window.SITE = {
-  schoolName: "○○고등학교 과학중점",
+  schoolName: "용산고등학교",
   deptName: "과학정보부",
   targetHours: 40, // 과학·수학 연간 이수 목표 시간
   labs: ["물리실험실", "화학실험실", "생명과학실험실", "지구과학실험실"],

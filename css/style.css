@@ -26,7 +26,8 @@ a { color: var(--primary); }
   padding: 10px 20px; background: #0f172a; color: #fff;
 }
 .brand { color: #fff; text-decoration: none; font-weight: 700; font-size: 17px; white-space: nowrap; }
-.logo { display: inline-block; background: #3b82f6; border-radius: 8px; padding: 0 6px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.logo { height: 32px; width: auto; background: #fff; border-radius: 4px; padding: 2px 3px; }
 .topbar nav { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
 .topbar nav a { color: #cbd5e1; text-decoration: none; padding: 6px 10px; border-radius: 8px; font-size: 14px; }
 .topbar nav a:hover { background: #1e293b; color: #fff; }
@@ -48,6 +49,10 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 h2 { font-size: 18px; margin: 0 0 12px; }
 .muted { color: var(--muted); }
 .lead { color: var(--muted); margin: 0 0 20px; }
+.hero { display: flex; align-items: center; gap: 16px; margin-bottom: 4px; }
+.hero img { height: 64px; width: auto; flex: none; }
+.hero .lead { margin-bottom: 0; }
+.hero + * { margin-top: 20px; }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
 .card.error { border-color: #fecaca; background: #fef2f2; color: var(--bad); }
