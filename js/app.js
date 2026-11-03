@@ -7,13 +7,16 @@
   const view = $("#view");
   let isAdmin = false;
   let adminTab = "requests";
+  const curYear = () => window.schoolYear();
+  let adminYear = curYear();
+  const addDays = (ds, n) => { const d = new Date(ds + "T00:00"); d.setDate(d.getDate() + n); return window.localDate(d); };
 
   const REQ_STATUS = { pending: "검토 중", approved: "승인", rejected: "반려" };
   const fmtDate = (iso) => {
     const d = new Date(iso); if (isNaN(d)) return iso;
     return `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]}) ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
-  const today = () => { const t = new Date(); t.setMinutes(t.getMinutes() - t.getTimezoneOffset()); return t.toISOString().slice(0, 10); };
+  const today = () => window.localDate();
   const ls = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -44,10 +47,10 @@
 
   // ---------- 홈 ----------
   async function home() {
-    const events = await Store.listEvents();
-    const now = Date.now(), in3w = now + 21 * 864e5;
+    const events = await Store.listEvents({ from: today(), to: addDays(today(), 22) });
+    const now = Date.now();
     const upcoming = events
-      .filter((e) => e.type !== "lab" && new Date(e.end || e.start).getTime() >= now && new Date(e.start).getTime() <= in3w)
+      .filter((e) => e.type !== "lab" && new Date(e.end || e.start).getTime() >= now)
       .sort((a, b) => a.start.localeCompare(b.start));
     view.innerHTML = `
       <h1>${esc(S.schoolName)} 과학실 안내</h1>
@@ -75,7 +78,6 @@
 
   // ---------- 캘린더 ----------
   async function calendarView() {
-    const events = await Store.listEvents();
     view.innerHTML = `
       <h1>일정 캘린더</h1>
       <p class="lead">승인된 실험실 사용 일정과 천체관측·과학행사가 표시됩니다. 일정을 누르면 상세 내용이 나옵니다.</p>
@@ -89,11 +91,16 @@
       headerToolbar: { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,listMonth" },
       height: "auto",
       dayMaxEvents: 3,
-      events: events.map((e) => ({
-        id: e.id, title: e.title, start: e.start, end: e.end,
-        color: e.status === "cancelled" ? "#9ca3af" : S.eventTypes[e.type]?.color,
-        classNames: [e.status], extendedProps: e
-      })),
+      // 화면에 보이는 기간의 일정만 불러옵니다 (해가 쌓여도 읽기 횟수 일정)
+      events(info, ok, fail) {
+        Store.listEvents({ from: info.startStr.slice(0, 10), to: info.endStr.slice(0, 10) })
+          .then((list) => ok(list.map((e) => ({
+            id: e.id, title: e.title, start: e.start, end: e.end,
+            color: e.status === "cancelled" ? "#9ca3af" : S.eventTypes[e.type]?.color,
+            classNames: [e.status], extendedProps: e
+          }))))
+          .catch(fail);
+      },
       eventClick(info) {
         const e = info.event.extendedProps;
         $("#evDetail").innerHTML = `
@@ -112,7 +119,7 @@
 
   // ---------- 실험실 사용 신청 (학교 A4 양식 3종) ----------
   async function applyView() {
-    const events = await Store.listEvents();
+    let events = [], eventsDate = null; // 고른 날짜의 일정만 불러와 겹침 확인
     let data = ls.get(DRAFT_LAB) || { reagents: [{}], team: ls.get(LAST_TEAM) || "" };
     view.innerHTML = `
       <h1>실험실 사용 신청</h1>
@@ -134,6 +141,10 @@
     const update = () => {
       data = { ...Forms.syncMirrors(box).data, team: $("#team").value.trim() };
       ls.set(DRAFT_LAB, data);
+      if (data.date && data.date !== eventsDate) {
+        eventsDate = data.date;
+        Store.listEvents({ from: data.date, to: addDays(data.date, 1) }).then((l) => { events = l; if (eventsDate === data.date) update(); }).catch(() => {});
+      }
       const hit = data.date && data.start && data.end && data.lab && events.find((x) => x.type === "lab" && x.lab === data.lab && x.status !== "cancelled"
         && x.start < `${data.date}T${data.end}` && (x.end || x.start) > `${data.date}T${data.start}`);
       $("#conflict").textContent = hit ? `⚠ 같은 시간에 ${data.lab} 승인된 일정이 있습니다 (${hit.title}). 시간을 조정해 주세요.` : "";
@@ -184,6 +195,7 @@
       d.materials = (d.materials || []).filter((m) => m && (m.name || m.spec || m.qty));
       d.reagents = (d.reagents || []).filter((r) => r && Object.values(r).some(Boolean));
       d.applyDate = today();
+      d.year = window.schoolYear(d.date);
       busy(e.target, async () => {
         await Store.submitRequest(d);
         ls.set(LAST_TEAM, d.team);
@@ -249,7 +261,7 @@
       if (!Forms.filledItems(data).length) miss.push("구입 품목 (한 줄 이상)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요 (예: 20315).");
-      const p = { ...data, items: Forms.filledItems(data) };
+      const p = { ...data, items: Forms.filledItems(data), year: curYear() };
       busy(e.target, async () => {
         await Store.submitPurchase(p);
         ls.set(LAST_TEAM, p.team);
@@ -293,7 +305,7 @@
   async function hoursView(q) {
     view.innerHTML = `
       <h1>과학·수학 이수시간 조회</h1>
-      <p class="lead">이름 없이 학번(학년·반·번호 5자리)으로만 조회합니다. 연간 목표: ${S.targetHours}시간</p>
+      <p class="lead"><b>${curYear()}학년도</b>(${curYear()}.3.1 ~ ${curYear() + 1}.2월 말) 기록입니다. 이름 없이 학번(학년·반·번호 5자리)으로만 조회합니다. 연간 목표: ${S.targetHours}시간</p>
       <form class="card actions" id="hForm">
         <input name="sid" placeholder="학번 5자리 (예: 20315)" pattern="[1-3][0-9]{4}" required value="${esc(q.get("sid") || "")}" style="flex:1;min-width:200px">
         <button class="btn">조회</button>
@@ -341,19 +353,28 @@
       });
       return;
     }
-    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사·천체관측 일정", hours: "이수시간 입력", hoursList: "이수시간 현황" };
+    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사·천체관측 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리" };
+    const years = [0, 1, 2, 3, 4].map((i) => curYear() - i);
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
-        <h1>관리자</h1><button class="btn ghost sm" id="logout">로그아웃</button></div>
+        <h1>관리자</h1>
+        <div class="actions">
+          <label class="inline-check">학년도
+            <select id="yearSel">${years.map((y) => `<option value="${y}" ${y === adminYear ? "selected" : ""}>${y}학년도${y === curYear() ? " (현재)" : ""}</option>`).join("")}</select></label>
+          <button class="btn ghost sm" id="logout">로그아웃</button>
+        </div></div>
       <div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${k === adminTab ? "on" : ""}">${v}</button>`).join("")}</div>
       <div id="adminBody"></div>`;
     $("#logout").onclick = () => Store.logout();
+    $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
-    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList })[adminTab]();
+    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup })[adminTab]();
   }
 
   async function adminRequests() {
-    const [reqs, events] = await Promise.all([Store.listRequests(), Store.listEvents()]);
+    const reqs = await Store.listRequests(adminYear);
+    const dates = reqs.filter((r) => r.date).map((r) => r.date).sort();
+    const events = dates.length ? await Store.listEvents({ from: dates[0], to: addDays(dates[dates.length - 1], 1) }) : [];
     const body = $("#adminBody");
     const byId = Object.fromEntries(reqs.map((r) => [r.id, r]));
     const pending = reqs.filter((r) => r.status === "pending");
@@ -399,7 +420,7 @@
   }
 
   async function adminPurchases() {
-    const list = await Store.listPurchases();
+    const list = await Store.listPurchases(adminYear);
     const byId = Object.fromEntries(list.map((p) => [p.id, p]));
     const body = $("#adminBody");
     body.innerHTML = `
@@ -465,7 +486,7 @@
   }
 
   async function adminEvents() {
-    const events = (await Store.listEvents()).filter((e) => e.type !== "lab").sort((a, b) => b.start.localeCompare(a.start));
+    const events = (await Store.listEvents(window.yearRange(adminYear))).filter((e) => e.type !== "lab").sort((a, b) => b.start.localeCompare(a.start));
     const body = $("#adminBody");
     body.innerHTML = `
       <form class="card" id="evForm">
@@ -484,7 +505,7 @@
         <div class="row"><label>안내 문구<input name="note" placeholder="예) 우천 시 취소, 전날 17시 확정 공지"></label></div>
         <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="evReset">새로 작성</button></div>
       </form>
-      <div class="card"><h2>등록된 일정</h2><div class="table-wrap"><table>
+      <div class="card"><h2>${adminYear}학년도 등록된 일정</h2><div class="table-wrap"><table>
         <tr><th>일시</th><th>제목</th><th>상태 (바로 변경)</th><th></th></tr>
         ${events.map((e) => `<tr>
           <td>${fmtDate(e.start)}</td><td>${esc(e.title)}</td>
@@ -538,10 +559,12 @@
       const raw = (f.elements.sids.value.match(/\d+/g) || []);
       const ok = [...new Set(raw.filter((s) => window.parseSid(s)))];
       const bad = raw.filter((s) => !window.parseSid(s));
-      $("#hrPreview").innerHTML = `유효한 학번 <b>${ok.length}명</b>${bad.length ? ` · <span class="warn">잘못된 값: ${esc(bad.join(", "))}</span>` : ""}`;
+      const y = f.elements.date.value ? window.schoolYear(f.elements.date.value) : curYear();
+      $("#hrPreview").innerHTML = `유효한 학번 <b>${ok.length}명</b> · <b>${y}학년도</b> 기록으로 저장됩니다${bad.length ? ` · <span class="warn">잘못된 값: ${esc(bad.join(", "))}</span>` : ""}`;
       return ok;
     };
     f.elements.sids.addEventListener("input", parse);
+    f.elements.date.addEventListener("change", parse);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const sids = parse(); if (!sids.length) return;
@@ -553,13 +576,56 @@
   }
 
   async function adminHoursList() {
-    const list = await Store.listHours();
+    const list = await Store.listHours(adminYear);
     $("#adminBody").innerHTML = `
-      <div class="card"><h2>학생별 이수시간 (${list.length}명)</h2>
+      <div class="card"><h2>${adminYear}학년도 학생별 이수시간 (${list.length}명)</h2>
         <div class="table-wrap"><table><tr><th>학번</th><th>학년/반/번호</th><th>누적</th><th>달성률</th></tr>
         ${list.map((h) => `<tr><td>${esc(h.sid)}</td><td>${h.grade}-${h.cls}-${h.num}</td><td>${h.total}</td>
           <td>${Math.min(100, Math.round((h.total / S.targetHours) * 100))}%</td></tr>`).join("")}
         </table></div></div>`;
+  }
+
+  // 학년도가 끝나면: 엑셀로 백업 → 삭제
+  async function adminCleanup() {
+    const y = adminYear, body = $("#adminBody");
+    const r = window.yearRange(y);
+    const data = await Store.yearData(y);
+    const isPast = y < curYear();
+    const lastDay = addDays(r.to, -1);
+    let backedUp = false;
+    body.innerHTML = `
+      <div class="card">
+        <h2>${y}학년도 기록 정리</h2>
+        <p class="muted">대상 기간: ${r.from} ~ ${lastDay}</p>
+        <table style="max-width:420px">
+          <tr><td>실험실 사용 신청</td><td><b>${data.requests.length}</b>건</td></tr>
+          <tr><td>물품 구입 신청</td><td><b>${data.purchases.length}</b>건</td></tr>
+          <tr><td>이수시간 기록</td><td><b>${data.hours.length}</b>명</td></tr>
+          <tr><td>캘린더 일정</td><td><b>${data.events.length}</b>건</td></tr>
+        </table>
+        <ol style="margin:16px 0 0;padding-left:20px;line-height:2.2">
+          <li><button class="btn" id="bkBtn">엑셀로 백업 다운로드</button>
+            <span class="muted small">신청서 내용(시약 조사서·실험 계획서 포함), 물품 품목내역, 이수시간, 일정이 시트별로 저장됩니다.</span></li>
+          <li><button class="btn bad" id="delBtn" disabled>${y}학년도 기록 삭제</button>
+            <span class="muted small" id="delHint">${isPast ? "먼저 1번 백업을 받아야 삭제할 수 있습니다." : "진행 중인 학년도는 삭제할 수 없습니다. 학년도가 끝난 뒤(3월 1일 이후) 정리하세요."}</span></li>
+        </ol>
+      </div>
+      <p class="muted small">삭제하면 되돌릴 수 없습니다. 백업 엑셀 파일은 학교 업무용 저장소(공유 드라이브 등)에 보관하세요.</p>`;
+    $("#bkBtn").onclick = (e) => busy(e.target, async () => {
+      await Forms.backupXlsx(y, data, `과학실_${y}학년도_백업_${today()}.xlsx`);
+      backedUp = true;
+      if (isPast) { $("#delBtn").disabled = false; $("#delHint").textContent = "백업 파일이 잘 열리는지 확인한 뒤 삭제하세요."; }
+    });
+    $("#delBtn").onclick = (e) => {
+      if (!isPast || !backedUp) return;
+      const typed = prompt(`정말 ${y}학년도 기록을 모두 삭제할까요? 되돌릴 수 없습니다.\n확인하려면 ${y} 를 입력하세요.`);
+      if (typed !== String(y)) return alert("입력한 값이 달라 삭제하지 않았습니다.");
+      busy(e.target, async () => {
+        const n = await Store.deleteYear(y);
+        alert(`${y}학년도 기록 ${n}건을 삭제했습니다.`);
+        adminCleanup();
+      });
+    };
   }
 
   // ---------- 시작 ----------

@@ -21,7 +21,7 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
-        && request.resource.data.keys().hasOnly(['team','date','start','end','lab','purpose','teacher','users',
+        && request.resource.data.keys().hasOnly(['year','team','date','start','end','lab','purpose','teacher','users',
              'materials','reagents','plan','agree','applyDate','status','adminNote','createdAt'])
         && request.resource.data.team.size() < 60
         && request.resource.data.purpose.size() < 300
@@ -33,7 +33,7 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
-        && request.resource.data.keys().hasOnly(['purpose','sid','name','useDate','teacher','team',
+        && request.resource.data.keys().hasOnly(['year','purpose','sid','name','useDate','teacher','team',
              'items','status','adminNote','createdAt'])
         && request.resource.data.team.size() < 60
         && request.resource.data.items.size() <= 40;
@@ -47,7 +47,7 @@ service cloud.firestore {
       allow create: if isAdmin() || (
         request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
-        && request.resource.data.keys().hasOnly(['kind','team','teamKey','status','adminNote','createdAt',
+        && request.resource.data.keys().hasOnly(['kind','year','team','teamKey','status','adminNote','createdAt',
              'date','start','end','lab','useDate','itemCount','total'])
         && (existsAfter(/databases/$(database)/documents/labRequests/$(id))
             || existsAfter(/databases/$(database)/documents/purchaseRequests/$(id))));
@@ -59,8 +59,8 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 이수시간: 학번으로 단건 조회만 공개, 전체 목록·입력은 관리자만
-    match /hours/{sid} {
+    // 이수시간 (문서ID = 학년도_학번): 단건 조회만 공개, 전체 목록·입력·삭제는 관리자만
+    match /hours/{id} {
       allow get: if true;
       allow list, write: if isAdmin();
     }

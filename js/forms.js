@@ -242,7 +242,19 @@
   async function purchasesToXlsx(list, filename) {
     await loadScript(LIB.exceljs);
     const wb = new window.ExcelJS.Workbook();
-    const ws = wb.addWorksheet("품목내역");
+    addPurchaseSheet(wb, list, "품목내역");
+    await saveWorkbook(wb, filename);
+  }
+  async function saveWorkbook(wb, filename) {
+    const buf = await wb.xlsx.writeBuffer();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  function addPurchaseSheet(wb, list, name) {
+    const ws = wb.addWorksheet(name);
     const widths = [34, 20, 7.5, 7.5, 11, 11, 10, 16];
     ws.columns = widths.map((w) => ({ width: w }));
     const head = ["내용", "규격", "단위", "수량", "예상단가", "예상금액", "구입처", "신청팀"];
@@ -279,13 +291,55 @@
         if (n === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } };
       });
     });
-    const buf = await wb.xlsx.writeBuffer();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-    a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
 
-  window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, filledItems, fmt, won };
+  // ---------------- 학년도 백업 엑셀 ----------------
+  function addTable(wb, name, cols, rows) {
+    const ws = wb.addWorksheet(name);
+    ws.columns = cols.map(([, w]) => ({ width: w }));
+    ws.addRow(cols.map(([h]) => h));
+    rows.forEach((r) => ws.addRow(r));
+    const thin = { style: "thin" };
+    ws.eachRow((r, n) => r.eachCell({ includeEmpty: true }, (c) => {
+      c.border = { top: thin, left: thin, bottom: thin, right: thin };
+      c.font = { name: "맑은 고딕", size: 10, bold: n === 1 };
+      c.alignment = { vertical: "top", wrapText: true };
+      if (n === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } };
+    }));
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+  }
+  const ST = { pending: "검토 중", approved: "승인", rejected: "반려" };
+  const day = (ms) => (ms ? new Date(ms).toLocaleDateString("ko-KR") : "");
+  const lines = (arr) => arr.filter(Boolean).join("\n");
+
+  async function backupXlsx(y, data, filename) {
+    await loadScript(LIB.exceljs);
+    const wb = new window.ExcelJS.Workbook();
+    const users = (r) => (r.users || []).filter((u) => u && (u.sid || u.name));
+    addTable(wb, "실험실 신청", [["신청일", 11], ["상태", 8], ["실무사 메모", 18], ["신청팀", 14], ["사용일", 11], ["시간", 12], ["실험실", 13],
+      ["사용 목적", 24], ["지도교사", 9], ["사용자(학번 이름)", 18], ["재료·기자재", 26], ["시약·시액 조사", 40], ["실험 계획서", 50]],
+      data.requests.map((r) => [day(r.createdAt), ST[r.status] || r.status, r.adminNote, r.team, r.date, `${r.start}~${r.end}`, r.lab,
+        r.purpose, r.teacher, lines(users(r).map((u) => `${u.sid} ${u.name}`)),
+        lines((r.materials || []).filter((m) => m && m.name).map((m) => `${m.name}${m.spec ? ` (${m.spec})` : ""}${m.qty ? ` ×${m.qty}` : ""}`)),
+        lines((r.reagents || []).filter((x) => x && x.name).map((x) => lines([`■ ${x.name}`, x.hazard && `유해성: ${x.hazard}`, x.eye && `눈: ${x.eye}`,
+          x.skin && `피부: ${x.skin}`, [x.smell && `냄새 ${x.smell}`, x.melt && `녹는점 ${x.melt}`, x.boil && `끓는점 ${x.boil}`, x.flash && `인화점 ${x.flash}`].filter(Boolean).join(", "),
+          x.stability && `안정성: ${x.stability}`, x.fire && `화재 시: ${x.fire}`, x.etc && `기타: ${x.etc}`]))),
+        (() => { const p = r.plan || {}; return lines([p.title && `제목: ${p.title}`, p.period && `${p.period}교시`, p.topic && `연구 주제: ${p.topic}`,
+          p.prep && `준비물: ${p.prep}`, p.caution && `주의사항: ${p.caution}`, p.steps && `실험 과정: ${p.steps}`, p.result && `예상 결과: ${p.result}`]); })()]));
+    addTable(wb, "물품 신청 목록", [["신청일", 11], ["상태", 8], ["실무사 메모", 18], ["신청팀", 16], ["신청자", 14], ["지도교사", 9],
+      ["실험 목적 및 내용", 30], ["사용예정일", 11], ["품목 수", 7], ["합계(원)", 11]],
+      data.purchases.map((p) => [day(p.createdAt), ST[p.status] || p.status, p.adminNote, p.team, `${p.sid} ${p.name}`, p.teacher,
+        p.purpose, p.useDate, filledItems(p).length, filledItems(p).reduce((a, it) => a + (+it.qty || 0) * (+it.price || 0), 0)]));
+    addPurchaseSheet(wb, data.purchases, "물품 품목내역");
+    addTable(wb, "이수시간 합계", [["학번", 8], ["학년", 6], ["반", 6], ["번호", 6], ["누적 시간", 10], [`목표(${S.targetHours}시간) 달성`, 14]],
+      data.hours.map((h) => [h.sid, h.grade, h.cls, h.num, h.total, h.total >= S.targetHours ? "달성" : "미달"]));
+    addTable(wb, "이수시간 내역", [["학번", 8], ["날짜", 11], ["활동", 30], ["시간", 7]],
+      data.hours.flatMap((h) => (h.records || []).slice().sort((a, b) => a.date.localeCompare(b.date)).map((r) => [h.sid, r.date, r.activity, r.hours])));
+    addTable(wb, "일정", [["종류", 11], ["제목", 34], ["시작", 17], ["종료", 17], ["상태", 16], ["안내", 30]],
+      data.events.slice().sort((a, b) => a.start.localeCompare(b.start)).map((e) => [S.eventTypes[e.type]?.label || e.type, e.title,
+        e.start.replace("T", " "), (e.end || "").replace("T", " "), S.eventStatus[e.status] || e.status, e.note || ""]));
+    await saveWorkbook(wb, filename);
+  }
+
+  window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, backupXlsx, filledItems, fmt, won };
 })();
