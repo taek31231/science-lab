@@ -19,9 +19,8 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
     del(k) { try { localStorage.removeItem(k); } catch {} }
   };
-  const MY = "sci-my-requests", DRAFT_LAB = "sci-draft-lab", DRAFT_PUR = "sci-draft-purchase";
-  const myRequests = () => ls.get(MY) || [];
-  const remember = (entry) => ls.set(MY, [entry, ...myRequests()].slice(0, 20));
+  const LAST_TEAM = "sci-last-team", DRAFT_LAB = "sci-draft-lab", DRAFT_PUR = "sci-draft-purchase";
+  const teamInput = (val) => `<label class="inline">신청팀(동아리·팀명)<input id="team" value="${esc(val || "")}" placeholder="동아리 또는 팀 이름"></label>`;
   const itemsTotal = (p) => Forms.filledItems(p).reduce((a, it) => a + (+it.qty || 0) * (+it.price || 0), 0);
   const userList = (r) => (r.users || []).filter((u) => u && (u.sid || u.name));
   async function busy(btn, fn) {
@@ -68,7 +67,7 @@
         ${tile("#/calendar", "📅", "일정 캘린더", "실험실 예약 현황과 행사 일정")}
         ${tile("#/apply", "🧪", "실험실 사용 신청", "신청서·시약 조사서·계획서 작성, PDF 저장")}
         ${tile("#/purchase", "🛒", "물품 구입 신청", "신청서 작성 후 PDF·엑셀로 저장")}
-        ${tile("#/status", "✅", "신청 결과 조회", "접수번호로 승인/반려 확인")}
+        ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인/반려 확인")}
         ${tile("#/hours", "⏱", "이수시간 조회", `학번으로 ${S.targetHours}시간 달성 현황 확인`)}
       </div>`;
   }
@@ -114,11 +113,12 @@
   // ---------- 실험실 사용 신청 (학교 A4 양식 3종) ----------
   async function applyView() {
     const events = await Store.listEvents();
-    let data = ls.get(DRAFT_LAB) || { reagents: [{}] };
+    let data = ls.get(DRAFT_LAB) || { reagents: [{}], team: ls.get(LAST_TEAM) || "" };
     view.innerHTML = `
       <h1>실험실 사용 신청</h1>
       <p class="lead">학교 양식(신청서 · 시약·시액 조사서 · 실험 계획서)과 같은 모양입니다. 파란 칸을 채우고 <b>온라인 제출</b>하세요.
         <b>모든 서류는 실험실 사용 7일 전까지</b> 제출해야 합니다.</p>
+      <div class="toolbar">${teamInput(data.team)}<span class="muted small">신청 결과는 이 팀명으로 조회합니다.</span></div>
       <div class="toolbar">
         <button class="btn ghost" id="addReagent">＋ 시약·시액 조사서 추가</button>
         <button class="btn ghost" id="pdfBtn">PDF로 저장</button>
@@ -130,8 +130,9 @@
       <div class="sheet-scroll" id="sheets"></div>`;
     const box = $("#sheets");
     const draw = () => { box.innerHTML = Forms.labSheets(data); };
+    const read = () => ({ ...Forms.readForm(box), team: $("#team").value.trim() });
     const update = () => {
-      data = Forms.syncMirrors(box).data;
+      data = { ...Forms.syncMirrors(box).data, team: $("#team").value.trim() };
       ls.set(DRAFT_LAB, data);
       const hit = data.date && data.start && data.end && data.lab && events.find((x) => x.type === "lab" && x.lab === data.lab && x.status !== "cancelled"
         && x.start < `${data.date}T${data.end}` && (x.end || x.start) > `${data.date}T${data.start}`);
@@ -140,30 +141,32 @@
     draw(); update();
     box.addEventListener("input", update);
     box.addEventListener("change", update);
+    $("#team").addEventListener("input", update);
     box.addEventListener("click", (e) => {
       const i = e.target.dataset.rmReagent; if (i == null) return;
       if (!confirm("이 시약·시액 조사서를 삭제할까요?")) return;
-      data = Forms.readForm(box);
+      data = read();
       data.reagents.splice(+i, 1);
       if (!data.reagents.length) data.reagents = [{}];
       draw(); update();
     });
     $("#addReagent").onclick = () => {
-      data = Forms.readForm(box);
+      data = read();
       data.reagents = [...(data.reagents || []), {}];
       draw(); update();
       box.querySelectorAll(".a4")[data.reagents.length].scrollIntoView({ behavior: "smooth" });
     };
     $("#clearBtn").onclick = () => {
       if (!confirm("작성 중인 내용을 모두 지울까요?")) return;
-      data = { reagents: [{}] }; ls.del(DRAFT_LAB); draw(); update();
+      data = { reagents: [{}] }; ls.del(DRAFT_LAB); $("#team").value = ""; draw(); update();
     };
     $("#pdfBtn").onclick = (e) => busy(e.target, () =>
       Forms.sheetsToPDF([...box.querySelectorAll(".a4")], `실험실사용신청서_${data.date || ""}_${data.users?.[0]?.name || ""}.pdf`));
     $("#submitBtn").onclick = (e) => {
-      const d = Forms.readForm(box);
+      const d = read();
       const u0 = d.users?.[0] || {};
       const miss = [];
+      if (!d.team) miss.push("신청팀(동아리·팀명)");
       if (!d.date) miss.push("사용 날짜");
       if (!d.start || !d.end) miss.push("사용 시각");
       if (!d.lab) miss.push("실험 장소");
@@ -182,30 +185,30 @@
       d.reagents = (d.reagents || []).filter((r) => r && Object.values(r).some(Boolean));
       d.applyDate = today();
       busy(e.target, async () => {
-        const id = await Store.submitRequest(d);
-        remember({ id, kind: "lab" });
+        await Store.submitRequest(d);
+        ls.set(LAST_TEAM, d.team);
         ls.del(DRAFT_LAB);
-        view.innerHTML = receipt(id, "실험실 사용 신청");
+        view.innerHTML = receipt(d.team, "실험실 사용 신청");
       });
     };
   }
 
-  const receipt = (id, what) => `
+  const receipt = (team, what) => `
     <div class="card">
       <h2>✅ ${what}이 접수되었습니다</h2>
-      <p>접수번호: <span class="code">${esc(id)}</span></p>
-      <p class="muted">이 기기에서는 '신청 결과 조회'에 자동으로 표시됩니다. 다른 기기에서 보려면 접수번호를 메모해 두세요.</p>
-      <a class="btn" href="#/status?id=${encodeURIComponent(id)}">결과 조회하기</a>
+      <p>신청팀: <b>${esc(team)}</b></p>
+      <p class="muted">'신청 결과 조회'에서 팀명으로 승인/반려 여부를 확인할 수 있습니다.</p>
+      <a class="btn" href="#/status?team=${encodeURIComponent(team)}">결과 조회하기</a>
     </div>`;
 
   // ---------- 물품 구입 신청 (학교 A4 양식) ----------
   async function purchaseView() {
-    let data = ls.get(DRAFT_PUR) || {};
+    let data = ls.get(DRAFT_PUR) || { team: ls.get(LAST_TEAM) || "" };
     view.innerHTML = `
       <h1>물품 구입 신청</h1>
       <p class="lead">심화프로젝트 집중탐구 및 동아리 지원 물품 구입 신청서입니다. 예상금액은 수량 × 예상단가로 자동 계산됩니다.</p>
       <div class="toolbar">
-        <label class="inline">신청팀(동아리·프로젝트팀명)<input id="team" value="${esc(data.team || "")}" placeholder="예) 희망스러운 테세우스의 배"></label>
+        ${teamInput(data.team)}
         <span class="total">합계 <b id="total">0</b>원</span>
       </div>
       <div class="toolbar">
@@ -248,56 +251,42 @@
       if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요 (예: 20315).");
       const p = { ...data, items: Forms.filledItems(data) };
       busy(e.target, async () => {
-        const id = await Store.submitPurchase(p);
-        remember({ id, kind: "purchase" });
+        await Store.submitPurchase(p);
+        ls.set(LAST_TEAM, p.team);
         ls.del(DRAFT_PUR);
-        view.innerHTML = receipt(id, "물품 구입 신청");
+        view.innerHTML = receipt(p.team, "물품 구입 신청");
       });
     };
   }
 
   // ---------- 신청 결과 조회 ----------
-  async function findAny(id) {
-    const r = await Store.getRequest(id).catch(() => null);
-    if (r) return { kind: "lab", r };
-    const p = await Store.getPurchase(id).catch(() => null);
-    return p ? { kind: "purchase", r: p } : null;
-  }
   async function statusView(q) {
-    const mine = myRequests();
+    const team0 = q.get("team") || ls.get(LAST_TEAM) || "";
     view.innerHTML = `
       <h1>신청 결과 조회</h1>
-      <p class="lead">접수번호로 실험실 사용·물품 구입 신청의 승인/반려 여부를 확인합니다.</p>
+      <p class="lead">신청할 때 적은 팀명(동아리명)으로 실험실 사용·물품 구입 신청의 승인/반려 여부를 확인합니다. 띄어쓰기는 무시됩니다.</p>
       <form class="card actions" id="stForm">
-        <input name="id" placeholder="접수번호" value="${esc(q.get("id") || "")}" style="flex:1;min-width:200px" required>
+        <input name="team" placeholder="팀명 또는 동아리명" value="${esc(team0)}" style="flex:1;min-width:200px" required>
         <button class="btn">조회</button>
       </form>
-      <div id="stResult"></div>
-      ${mine.length ? `<div class="card"><h2>이 기기에서 신청한 내역</h2><div id="mine" class="table-wrap"><p class="muted">불러오는 중…</p></div></div>` : ""}`;
-    const show = async (id) => {
-      const f = await findAny(id.trim());
-      if (!f) return ($("#stResult").innerHTML = '<div class="card error">해당 접수번호의 신청이 없습니다.</div>');
-      const r = f.r;
-      const body = f.kind === "lab"
-        ? `<h2>실험실 사용 · ${esc(r.lab)} <span class="badge ${r.status}">${REQ_STATUS[r.status]}</span></h2>
-           <p>${esc(r.date)} ${esc(r.start)}~${esc(r.end)} · ${esc(r.purpose)} · 지도교사 ${esc(r.teacher)}</p>`
-        : `<h2>물품 구입 · ${esc(r.team)} <span class="badge ${r.status}">${REQ_STATUS[r.status]}</span></h2>
-           <p>품목 ${Forms.filledItems(r).length}개 · 합계 ${Forms.won(itemsTotal(r))}원 · 지도교사 ${esc(r.teacher)}</p>`;
-      $("#stResult").innerHTML = `<div class="card">${body}
-        ${r.adminNote ? `<p><b>실무사 메모:</b> ${esc(r.adminNote)}</p>` : ""}
-        ${r.status === "pending" ? '<p class="muted">아직 검토 중입니다.</p>' : ""}</div>`;
+      <div id="stResult"></div>`;
+    const show = async (team) => {
+      team = team.trim(); if (!team) return;
+      const list = await Store.listStatusByTeam(team);
+      $("#stResult").innerHTML = list.length ? `
+        <div class="card"><h2>'${esc(team)}' 신청 내역 (${list.length}건)</h2>
+          ${list.map((r) => `
+            <div class="notice"><div style="flex:1">
+              <b>${r.kind === "lab" ? `🧪 실험실 사용 · ${esc(r.lab)}` : "🛒 물품 구입"}</b>
+              <span class="badge ${r.status}">${REQ_STATUS[r.status]}</span><br>
+              <span class="muted">${r.kind === "lab" ? `${esc(r.date)} ${esc(r.start)}~${esc(r.end)}` : `품목 ${r.itemCount}개 · 합계 ${Forms.won(r.total) || 0}원${r.useDate ? ` · 사용예정일 ${esc(r.useDate)}` : ""}`}
+                · 신청일 ${new Date(r.createdAt).toLocaleDateString("ko-KR")}</span>
+              ${r.adminNote ? `<div><b>실무사 메모:</b> ${esc(r.adminNote)}</div>` : ""}
+            </div></div>`).join("")}
+        </div>` : `<div class="card error">'${esc(team)}' 팀명으로 접수된 신청이 없습니다. 신청할 때 적은 팀명을 확인해 주세요.</div>`;
     };
-    $("#stForm").addEventListener("submit", (e) => { e.preventDefault(); show(new FormData(e.target).get("id")); });
-    if (q.get("id")) show(q.get("id"));
-    if (mine.length) {
-      const rows = await Promise.all(mine.map((m) => findAny(m.id)));
-      $("#mine").innerHTML = `<table><tr><th>구분</th><th>내용</th><th>상태</th><th></th></tr>
-        ${rows.map((f, i) => f ? `<tr>
-          <td>${f.kind === "lab" ? "실험실" : "물품"}</td>
-          <td>${f.kind === "lab" ? `${esc(f.r.date)} ${esc(f.r.lab)}` : `${esc(f.r.team)} (${Forms.won(itemsTotal(f.r))}원)`}</td>
-          <td><span class="badge ${f.r.status}">${REQ_STATUS[f.r.status]}</span></td>
-          <td><a href="#/status?id=${encodeURIComponent(mine[i].id)}">자세히</a></td></tr>` : "").join("")}</table>`;
-    }
+    $("#stForm").addEventListener("submit", (e) => { e.preventDefault(); show(new FormData(e.target).get("team")); });
+    if (team0) show(team0);
   }
 
   // ---------- 이수시간 조회 ----------
@@ -381,7 +370,7 @@
           <b>${esc(r.date)} ${esc(r.start)}~${esc(r.end)} · ${esc(r.lab)}</b>
           <span class="badge ${r.status}">${REQ_STATUS[r.status]}</span>
         </div>
-        <p style="margin:6px 0"><b>${esc(r.purpose)}</b></p>
+        <p style="margin:6px 0"><b>[${esc(r.team || "팀명 없음")}]</b> ${esc(r.purpose)}</p>
         <p class="muted" style="margin:0">사용자: ${userList(r).map((u) => `${esc(u.sid)} ${esc(u.name)}`).join(", ")} · 지도교사 ${esc(r.teacher)}</p>
         <p class="muted" style="margin:0">재료·기자재: ${esc(mats.join(", ") || "없음")}</p>
         <p class="muted" style="margin:0 0 6px">시약: ${esc(reag.join(", ") || "없음")}${r.plan?.title ? ` · 실험 제목: ${esc(r.plan.title)}` : ""}</p>

@@ -3,8 +3,9 @@
 // 화면 코드(app.js)는 아래 Store의 함수만 호출하므로, 저장 방식이 바뀌어도 화면은 그대로입니다.
 //
 // 컬렉션 구조
-//   labRequests/{자동ID}  실험실 사용 신청 (접수번호 = 문서ID, 학생은 접수번호로만 조회)
-//   purchaseRequests/{자동ID}  물품 구입 신청 (접수번호로만 조회)
+//   labRequests/{자동ID}  실험실 사용 신청 원본 (이름·학번 포함 → 관리자만 읽기)
+//   purchaseRequests/{자동ID}  물품 구입 신청 (관리자만 목록 조회)
+//   statusBoard/{신청ID}  팀명으로 조회하는 신청 결과 (이름·학번 없이 팀명·일시·상태만) - 공개
 //   events/{ID}           캘린더 일정 (승인된 실험실 사용, 천체관측, 과학행사) - 공개
 //   hours/{학번}          과학·수학 이수시간 (이름 없이 학번만) - 학번으로 단건 조회만 가능
 //   admins/{uid}          관리자 계정 목록 (Firebase 콘솔에서 직접 추가)
@@ -25,7 +26,7 @@
     const p = (r.purpose || "").trim();
     return {
       type: "lab",
-      title: `${r.lab} · ${p.length > 18 ? p.slice(0, 18) + "…" : p}`,
+      title: `${r.lab} · ${r.team || (p.length > 18 ? p.slice(0, 18) + "…" : p)}`,
       start: `${r.date}T${r.start}`,
       end: `${r.date}T${r.end}`,
       lab: r.lab,
@@ -35,9 +36,20 @@
     };
   }
 
+  // 팀명 비교용: 띄어쓰기·대소문자 무시
+  const teamKey = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+  const itemsSum = (items) => (items || []).reduce((a, it) => a + (+it.qty || 0) * (+it.price || 0), 0);
+  // 공개 조회용 요약 (학생 이름·학번은 넣지 않음)
+  function statusEntry(kind, r) {
+    const base = { kind, team: r.team || "", teamKey: teamKey(r.team), status: r.status || "pending", adminNote: r.adminNote || "" };
+    return kind === "lab"
+      ? { ...base, date: r.date || "", start: r.start || "", end: r.end || "", lab: r.lab || "" }
+      : { ...base, useDate: r.useDate || "", itemCount: (r.items || []).length, total: itemsSum(r.items) };
+  }
+
   // ---------------- 데모 (localStorage) ----------------
   function demoStore() {
-    const K = "sci-demo-v2";
+    const K = "sci-demo-v3";
     const load = () => {
       try { return JSON.parse(localStorage.getItem(K)) || seed(); } catch { return seed(); }
     };
@@ -47,7 +59,7 @@
       const d = (n) => { const x = new Date(t); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
       const data = {
         requests: {
-          demo1: { id: "demo1", date: d(9), start: "16:30", end: "18:00", lab: "화학실험실", purpose: "케미스토리 동아리 – 산화환원 적정",
+          demo1: { id: "demo1", team: "케미스토리", date: d(9), start: "16:30", end: "18:00", lab: "화학실험실", purpose: "산화환원 적정 실험",
             teacher: "김화학", users: [{ sid: "20315", name: "홍길동" }, { sid: "20316", name: "김철수" }, {}],
             materials: [{ name: "뷰렛", spec: "50mL", qty: "2" }, { name: "삼각플라스크", spec: "250mL", qty: "4" }],
             reagents: [{ name: "과망가니즈산 칼륨" }], plan: { title: "산화환원 적정", period: "8" }, agree: true,
@@ -55,7 +67,7 @@
         },
         purchases: {
           p1: { id: "p1", purpose: "드론 제작 및 비행 안정성 탐구", sid: "20101", name: "이영희", useDate: d(14), teacher: "박물리",
-            team: "희망스러운 테세우스의 배", status: "pending", adminNote: "", createdAt: Date.now(),
+            team: "드론탐구반", status: "pending", adminNote: "", createdAt: Date.now(),
             items: [
               { name: "드론 Simonk 펌웨어 ESC 멀티변속기", spec: "40A", qty: "1", price: "14300", site: "11번가" },
               { name: "드론 Simonk 펌웨어 ESC 멀티변속기 배송비", qty: "1", price: "3000" },
@@ -114,6 +126,13 @@
         const d = load(); const p = d.purchases[id]; if (!p) throw new Error("신청을 찾을 수 없습니다");
         p.status = status; p.adminNote = adminNote || ""; save(d);
       },
+      async listStatusByTeam(team) {
+        const d = load(), key = teamKey(team);
+        return [
+          ...Object.values(d.requests).filter((r) => teamKey(r.team) === key).map((r) => ({ id: r.id, createdAt: r.createdAt, ...statusEntry("lab", r) })),
+          ...Object.values(d.purchases).filter((r) => teamKey(r.team) === key).map((r) => ({ id: r.id, createdAt: r.createdAt, ...statusEntry("purchase", r) }))
+        ].sort((a, b) => b.createdAt - a.createdAt);
+      },
       async listEvents() { return Object.values(load().events); },
       async saveEvent(ev) {
         const d = load(); const id = ev.id || uid();
@@ -151,10 +170,16 @@
     return {
       isDemo: false,
       async submitRequest(r) {
-        const ref = await db.collection("labRequests").add({
-          ...r, status: "pending", adminNote: "", createdAt: FV.serverTimestamp()
-        });
+        const ref = db.collection("labRequests").doc();
+        const b = db.batch();
+        b.set(ref, { ...r, status: "pending", adminNote: "", createdAt: FV.serverTimestamp() });
+        b.set(db.collection("statusBoard").doc(ref.id), { ...statusEntry("lab", r), status: "pending", adminNote: "", createdAt: FV.serverTimestamp() });
+        await b.commit();
         return ref.id;
+      },
+      async listStatusByTeam(team) {
+        const q = await db.collection("statusBoard").where("teamKey", "==", teamKey(team)).get();
+        return q.docs.map(withId).map((r) => ({ ...r, createdAt: ms(r.createdAt) })).sort((a, b) => b.createdAt - a.createdAt);
       },
       async getRequest(id) {
         const s = await db.collection("labRequests").doc(id).get();
@@ -170,14 +195,17 @@
         const r = withId(snap);
         const b = db.batch();
         b.update(ref, { status, adminNote: adminNote || "", decidedAt: FV.serverTimestamp() });
+        b.set(db.collection("statusBoard").doc(id), { ...statusEntry("lab", { ...r, status, adminNote }), createdAt: r.createdAt || FV.serverTimestamp() });
         const evRef = db.collection("events").doc("req_" + id);
         if (status === "approved") b.set(evRef, requestToEvent(r)); else b.delete(evRef);
         await b.commit();
       },
       async submitPurchase(p) {
-        const ref = await db.collection("purchaseRequests").add({
-          ...p, status: "pending", adminNote: "", createdAt: FV.serverTimestamp()
-        });
+        const ref = db.collection("purchaseRequests").doc();
+        const b = db.batch();
+        b.set(ref, { ...p, status: "pending", adminNote: "", createdAt: FV.serverTimestamp() });
+        b.set(db.collection("statusBoard").doc(ref.id), { ...statusEntry("purchase", p), status: "pending", adminNote: "", createdAt: FV.serverTimestamp() });
+        await b.commit();
         return ref.id;
       },
       async getPurchase(id) {
@@ -189,7 +217,10 @@
         return q.docs.map(withId).map((r) => ({ ...r, createdAt: ms(r.createdAt) }));
       },
       async decidePurchase(id, status, adminNote) {
-        await db.collection("purchaseRequests").doc(id).update({ status, adminNote: adminNote || "", decidedAt: FV.serverTimestamp() });
+        const b = db.batch();
+        b.update(db.collection("purchaseRequests").doc(id), { status, adminNote: adminNote || "", decidedAt: FV.serverTimestamp() });
+        b.set(db.collection("statusBoard").doc(id), { status, adminNote: adminNote || "" }, { merge: true });
+        await b.commit();
       },
       async listEvents() {
         const q = await db.collection("events").get();
