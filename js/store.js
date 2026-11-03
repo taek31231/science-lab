@@ -9,7 +9,7 @@
 //   labRequests/{자동ID}       실험실 사용 신청 원본 (이름·학번 포함 → 관리자만 읽기)
 //   purchaseRequests/{자동ID}  물품 구입 신청 원본 (관리자만 읽기)
 //   statusBoard/{신청ID}       팀명으로 조회하는 신청 결과 (이름·학번 없이 팀명·일시·상태만) - 공개
-//   events/{ID}                캘린더 일정 (승인된 실험실 사용, 천체관측, 과학행사) - 공개
+//   events/{ID}                캘린더 일정 (승인된 실험실 사용, 과학행사) - 공개
 //   hours/{학년도_학번}        과학·수학 이수시간 (이름 없이 학번만) - 단건 조회만 공개
 //   admins/{uid}               관리자 계정 목록 (Firebase 콘솔에서 직접 추가)
 
@@ -42,7 +42,7 @@
       start: `${r.date}T${r.start}`,
       end: `${r.date}T${r.end}`,
       lab: r.lab,
-      status: "confirmed",
+      status: "scheduled",
       note: p,
       requestId: r.id
     };
@@ -63,7 +63,7 @@
 
   // ---------------- 데모 (localStorage) ----------------
   function demoStore() {
-    const K = "sci-demo-v4";
+    const K = "sci-demo-v5";
     const load = () => {
       try { return JSON.parse(localStorage.getItem(K)) || seed(); } catch { return seed(); }
     };
@@ -98,12 +98,14 @@
             ] }
         },
         events: {
-          e1: { id: "e1", type: "astro", title: "천체관측 (목성·토성)", start: `${d(5)}T19:30`, end: `${d(5)}T21:30`,
-            status: "scheduled", note: "날씨에 따라 전날 17시까지 확정 공지" },
+          e1: { id: "e1", type: "event", title: "천체관측 (목성·토성)", start: `${d(5)}T19:30`, end: `${d(5)}T21:30`,
+            status: "scheduled", note: "날씨에 따라 전날 17시까지 공지" },
           e2: { id: "e2", type: "event", title: "과학 탐구 발표대회", start: `${d(10)}T14:00`, end: `${d(10)}T17:00`,
-            status: "confirmed", note: "참가 시 이수시간 2시간" },
+            status: "scheduled", note: "참가 시 이수시간 2시간" },
+          e3: { id: "e3", type: "event", title: "과학의 날 행사", start: `${d(-7)}T13:00`, end: `${d(-7)}T16:00`,
+            status: "done", note: "" },
           req_old1: { id: "req_old1", type: "lab", title: "생명과학실험실 · 지난해 동아리", start: `${y - 1}-10-10T16:00`, end: `${y - 1}-10-10T17:00`,
-            lab: "생명과학실험실", status: "confirmed", note: "", requestId: "old1" }
+            lab: "생명과학실험실", status: "done", note: "", requestId: "old1" }
         },
         hours: {
           [`${y}_20315`]: { year: y, sid: "20315", grade: 2, cls: 3, num: 15, total: 6,

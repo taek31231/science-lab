@@ -59,9 +59,9 @@
         <h2>📢 다가오는 행사 일정</h2>
         ${upcoming.length ? upcoming.map((e) => `
           <div class="notice">
-            <span class="dot" style="background:${S.eventTypes[e.type]?.color}"></span>
+            <span class="dot" style="background:${S.typeOf(e).color}"></span>
             <div>
-              <b>${esc(e.title)}</b> <span class="badge ${e.status}">${esc(S.eventStatus[e.status] || "")}</span><br>
+              <b>${esc(e.title)}</b> <span class="badge ${e.status}">${esc(S.statusOf(e.status))}</span><br>
               <span class="muted">${fmtDate(e.start)}${e.note ? " · " + esc(e.note) : ""}</span>
             </div>
           </div>`).join("") : '<p class="muted">3주 이내 예정된 행사가 없습니다.</p>'}
@@ -80,7 +80,7 @@
   async function calendarView() {
     view.innerHTML = `
       <h1>일정 캘린더</h1>
-      <p class="lead">승인된 실험실 사용 일정과 행사 일정(천체관측 포함)이 표시됩니다. 일정을 누르면 상세 내용이 나옵니다.</p>
+      <p class="lead">승인된 실험실 사용 일정과 과학행사 일정이 표시됩니다. 일정을 누르면 상세 내용이 나옵니다.</p>
       <div class="legend">${Object.values(S.eventTypes).map((t) => `<span style="--c:${t.color}">${t.label}</span>`).join("")}
         <span style="--c:#9ca3af">취소된 일정</span></div>
       <div id="cal"></div>
@@ -96,7 +96,7 @@
         Store.listEvents({ from: info.startStr.slice(0, 10), to: info.endStr.slice(0, 10) })
           .then((list) => ok(list.map((e) => ({
             id: e.id, title: e.title, start: e.start, end: e.end,
-            color: e.status === "cancelled" ? "#9ca3af" : S.eventTypes[e.type]?.color,
+            color: e.status === "cancelled" ? "#9ca3af" : S.typeOf(e).color,
             classNames: [e.status], extendedProps: e
           }))))
           .catch(fail);
@@ -106,8 +106,8 @@
         $("#evDetail").innerHTML = `
           <div class="card" style="margin-top:16px">
             <h2>${esc(e.title)}</h2>
-            <p><span class="badge ${e.status}">${esc(S.eventStatus[e.status] || "")}</span>
-              <span class="muted">${esc(S.eventTypes[e.type]?.label)}</span></p>
+            <p><span class="badge ${e.status}">${esc(S.statusOf(e.status))}</span>
+              <span class="muted">${esc(S.typeOf(e).label)}</span></p>
             <p>${fmtDate(e.start)} ~ ${e.end ? fmtDate(e.end).split(" ").pop() : ""}</p>
             ${e.note ? `<p>${esc(e.note)}</p>` : ""}
           </div>`;
@@ -565,22 +565,21 @@
   async function parseEventRows(rows) {
     const T = Forms.cellText;
     const list = rows.map(({ row, cells }) => {
-      const [type, title, date, start, end, status, note] = cells;
-      const x = { row, cells: [T(type), T(title), Forms.toDateStr(date) || T(date), Forms.toTimeStr(start) || T(start), Forms.toTimeStr(end) || T(end), T(status), T(note)] };
+      const [title, date, start, end, status, note] = cells;
+      const x = { row, cells: [T(title), Forms.toDateStr(date) || T(date), Forms.toTimeStr(start) || T(start), Forms.toTimeStr(end) || T(end), T(status), T(note)] };
       if (/^예\)/.test(T(title))) return null; // 예시 줄
-      const ty = T(type), st = T(status);
-      const e = { type: /천체/.test(ty) ? "astro" : !ty || /행사/.test(ty) ? "event" : null, title: T(title), note: T(note),
-        status: !st || /예정/.test(st) ? "scheduled" : /확정/.test(st) ? "confirmed" : /취소/.test(st) ? "cancelled" : null };
+      const st = T(status);
+      const e = { type: "event", title: T(title), note: T(note),
+        status: !st || /예정/.test(st) ? "scheduled" : /완료/.test(st) ? "done" : /취소/.test(st) ? "cancelled" : null };
       const d = Forms.toDateStr(date), s = Forms.toTimeStr(start);
       let en = Forms.toTimeStr(end);
-      if (!e.type) x.msg = "종류는 천체관측 / 과학행사";
-      else if (!e.title) x.msg = "제목이 비어 있음";
+      if (!e.title) x.msg = "제목이 비어 있음";
       else if (!d) x.msg = "날짜 형식 (예: 2026-11-20)";
       else if (!s) x.msg = "시작 시각 형식 (예: 19:30)";
       else if (T(end) && !en) x.msg = "종료 시각 형식 (예: 21:30)";
-      else if (!e.status) x.msg = "상태는 예정 / 시행 확정 / 취소";
+      else if (!e.status) x.msg = "상태는 예정 / 완료 / 취소";
       if (x.msg) return x;
-      if (!en) { const m = Math.min(+s.slice(0, 2) * 60 + +s.slice(3) + 120, 23 * 60 + 59); en = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; x.cells[4] = en; }
+      if (!en) { const m = Math.min(+s.slice(0, 2) * 60 + +s.slice(3) + 120, 23 * 60 + 59); en = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; x.cells[3] = en; }
       if (en <= s) { x.msg = "종료 시각이 시작보다 빠름"; return x; }
       x.item = { ...e, start: `${d}T${s}`, end: `${d}T${en}` };
       return x;
@@ -594,7 +593,7 @@
       const k = `${x.item.start}|${x.item.title}`;
       if (seen.has(k)) { x.dup = true; delete x.item; } else seen.add(k);
     }
-    return { head: ["종류", "제목", "날짜", "시작", "종료", "상태", "안내"], list };
+    return { head: ["제목", "날짜", "시작", "종료", "상태", "안내"], list };
   }
 
   async function parseHourRows(rows) {
@@ -640,7 +639,6 @@
         <h2 id="evFormTitle">새 일정 등록</h2>
         <input type="hidden" name="id">
         <div class="row">
-          <label>종류<select name="type"><option value="astro">천체관측</option><option value="event">과학행사</option></select></label>
           <label>제목<input name="title" required placeholder="예) 11월 천체관측"></label>
           <label>상태<select name="status">${Object.entries(S.eventStatus).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></label>
         </div>
@@ -649,7 +647,7 @@
           <label>시작<input type="time" name="start" required value="19:30"></label>
           <label>종료<input type="time" name="end" required value="21:30"></label>
         </div>
-        <div class="row"><label>안내 문구<input name="note" placeholder="예) 우천 시 취소, 전날 17시 확정 공지"></label></div>
+        <div class="row"><label>안내 문구<input name="note" placeholder="예) 우천 시 취소, 전날 17시 공지"></label></div>
         <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="evReset">새로 작성</button></div>
       </form>
       ${bulkCard("등록할 행사 일정")}
@@ -665,7 +663,7 @@
     f.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const d = Object.fromEntries(new FormData(f));
-      await Store.saveEvent({ id: d.id || undefined, type: d.type, title: d.title, status: d.status, note: d.note,
+      await Store.saveEvent({ id: d.id || undefined, type: "event", title: d.title, status: d.status, note: d.note,
         start: `${d.date}T${d.start}`, end: `${d.date}T${d.end}` });
       adminEvents();
     });
@@ -680,7 +678,7 @@
     }));
     body.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => {
       const e = byId[b.dataset.edit];
-      Object.entries({ id: e.id, type: e.type, title: e.title, status: e.status, note: e.note || "",
+      Object.entries({ id: e.id, title: e.title, status: S.eventStatus[e.status] ? e.status : "scheduled", note: e.note || "",
         date: e.start.slice(0, 10), start: e.start.slice(11, 16), end: (e.end || "").slice(11, 16) })
         .forEach(([k, v]) => (f.elements[k].value = v));
       $("#evFormTitle").textContent = "일정 수정";
