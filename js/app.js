@@ -53,7 +53,7 @@
       .filter((e) => e.type !== "lab" && new Date(e.end || e.start).getTime() >= now)
       .sort((a, b) => a.start.localeCompare(b.start));
     view.innerHTML = `
-      <div class="hero"><img src="img/logo.svg" alt=""><div><h1>${esc(S.schoolName)} ${esc(S.deptName)}</h1>
+      <div class="hero"><img src="img/logo.png" alt=""><div><h1>${esc(S.schoolName)} ${esc(S.deptName)}</h1>
       <p class="lead">실험실 사용 신청, 과학행사 일정, 과학·수학 이수시간을 한 곳에서 확인하세요.</p></div></div>
       <div class="card">
         <h2>📢 다가오는 과학행사 · 천체관측</h2>
