@@ -78,6 +78,7 @@ textarea { min-height: 80px; resize: vertical; }
 .btn.ghost { background: #fff; color: var(--ink); border: 1px solid #d1d5db; }
 .btn.ok { background: var(--ok); }
 .btn.bad { background: var(--bad); }
+.btn.ghost.del-t { color: #b91c1c; border-color: #fca5a5; }
 .btn.sm { padding: 5px 10px; font-size: 13px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 

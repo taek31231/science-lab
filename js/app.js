@@ -398,6 +398,27 @@
     }));
   }
 
+  // 반려된 신청 삭제 (하나씩 / 모두). 학생의 '신청 결과 조회'에서도 사라짐
+  const delBtn = (r) => (r.status === "rejected" ? `<button class="btn ghost sm del-t" data-delrej="${esc(r.id)}">삭제</button>` : "");
+  const delAllBtn = (list) => {
+    const n = list.filter((r) => r.status === "rejected").length;
+    return n ? `<div class="actions" style="margin:0 0 10px"><button class="btn ghost sm del-t" data-delrej-all>반려된 신청 ${n}건 모두 삭제</button></div>` : "";
+  };
+  function bindDeleteRejected(body, kind, list, rerender) {
+    const warn = "\n\n삭제하면 되돌릴 수 없고, 학생의 '신청 결과 조회'에서도 사라집니다.";
+    body.querySelectorAll("[data-delrej]").forEach((b) => (b.onclick = () => {
+      const r = list.find((x) => x.id === b.dataset.delrej);
+      if (!confirm(`반려된 신청 [${r.team || "팀명 없음"}]을(를) 삭제할까요?${warn}`)) return;
+      busy(b, async () => { await Store.deleteRequests(kind, [r.id]); rerender(); });
+    }));
+    const all = body.querySelector("[data-delrej-all]");
+    if (all) all.onclick = () => {
+      const ids = list.filter((r) => r.status === "rejected").map((r) => r.id);
+      if (!confirm(`반려된 신청 ${ids.length}건을 모두 삭제할까요?${warn}`)) return;
+      busy(all, async () => { await Store.deleteRequests(kind, ids); rerender(); });
+    };
+  }
+
   async function adminRequests() {
     const reqs = await Store.listRequests(adminYear);
     const dates = reqs.filter((r) => r.date).map((r) => r.date).sort();
@@ -429,12 +450,15 @@
           <button class="btn ok sm" data-act="approved" data-id="${esc(r.id)}" ${approveLock(r)}>승인</button>
           <button class="btn bad sm" data-act="rejected" data-id="${esc(r.id)}">반려</button>
           <button class="btn ghost sm" data-pdf="${esc(r.id)}">신청서 PDF</button>
+          ${delBtn(r)}
         </div>
       </div>`;
     };
     body.innerHTML = `
       <h2>대기 중 (${pending.length})</h2>${pending.map(card).join("") || '<p class="muted">대기 중인 신청이 없습니다.</p>'}
-      <details><summary class="muted" style="cursor:pointer;margin:16px 0">처리 완료 ${done.length}건 보기</summary>${done.map(card).join("")}</details>`;
+      <details><summary class="muted" style="cursor:pointer;margin:16px 0">처리 완료 ${done.length}건 보기</summary>
+        ${delAllBtn(reqs)}${done.map(card).join("")}</details>`;
+    bindDeleteRejected(body, "lab", reqs, adminRequests);
     body.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const note = body.querySelector(`[data-note="${CSS.escape(b.dataset.id)}"]`).value;
       if (b.dataset.act === "rejected" && !note && !confirm("반려 사유 없이 반려할까요?")) return;
@@ -462,6 +486,7 @@
           </div>
         </div>
         <p class="muted small">여러 팀을 선택하면 학교 '물품 신청내역' 엑셀과 같은 형식(팀별로 신청팀 칸 병합)으로 한 파일에 합쳐집니다.</p>
+        ${delAllBtn(list)}
         <div class="table-wrap"><table>
           <tr><th></th><th>접수일</th><th>신청팀</th><th>신청자</th><th>품목</th><th>합계</th><th>상태</th><th></th></tr>
           ${list.map((p) => `
@@ -488,6 +513,7 @@
                 <button class="btn bad sm" data-act="rejected" data-id="${esc(p.id)}">반려</button>
                 <button class="btn ghost sm" data-pdf="${esc(p.id)}">신청서 PDF</button>
                 <button class="btn ghost sm" data-xls="${esc(p.id)}">이 팀만 엑셀</button>
+                ${delBtn(p)}
               </div>
             </td></tr>`).join("") || '<tr><td colspan="8" class="muted">신청이 없습니다.</td></tr>'}
         </table></div>
@@ -506,6 +532,7 @@
       adminPurchases();
     }));
     bindTeacherCheck(body, "purchase", byId);
+    bindDeleteRejected(body, "purchase", list, adminPurchases);
     body.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => {
       const p = byId[b.dataset.pdf];
       busy(b, () => Forms.dataToPDF("purchase", p, `물품구입신청서_${p.team || p.name}.pdf`));

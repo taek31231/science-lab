@@ -147,6 +147,11 @@
         const d = load(); const p = d.purchases[id]; if (!p) throw new Error("신청을 찾을 수 없습니다");
         p.status = status; p.adminNote = adminNote || ""; save(d);
       },
+      async deleteRequests(kind, ids) {
+        const d = load(); const col = kind === "lab" ? d.requests : d.purchases;
+        for (const id of ids) { delete col[id]; delete d.events["req_" + id]; }
+        save(d);
+      },
       async setTeacherChecked(kind, id, on) {
         const d = load(); const r = (kind === "lab" ? d.requests : d.purchases)[id];
         if (!r) throw new Error("신청을 찾을 수 없습니다");
@@ -271,6 +276,19 @@
         b.update(db.collection("purchaseRequests").doc(id), { status, adminNote: adminNote || "", decidedAt: FV.serverTimestamp() });
         b.set(db.collection("statusBoard").doc(id), { status, adminNote: adminNote || "" }, { merge: true });
         await b.commit();
+      },
+      // 신청 삭제: 원본 + 결과 조회 요약 + (혹시 남은) 캘린더 일정
+      async deleteRequests(kind, ids) {
+        const col = kind === "lab" ? "labRequests" : "purchaseRequests";
+        for (let i = 0; i < ids.length; i += 150) {
+          const b = db.batch();
+          for (const id of ids.slice(i, i + 150)) {
+            b.delete(db.collection(col).doc(id));
+            b.delete(db.collection("statusBoard").doc(id));
+            if (kind === "lab") b.delete(db.collection("events").doc("req_" + id));
+          }
+          await b.commit();
+        }
       },
       // 관리자가 지도교사에게 확인했는지 표시 (관리자만 수정 가능)
       async setTeacherChecked(kind, id, on) {
