@@ -56,7 +56,7 @@
       <div class="hero"><img src="img/logo.png" alt=""><div><h1>${esc(S.schoolName)} ${esc(S.deptName)}</h1>
       <p class="lead">실험실 사용 신청, 과학행사 일정, 과학·수학 이수시간을 한 곳에서 확인하세요.</p></div></div>
       <div class="card">
-        <h2>📢 다가오는 과학행사 · 천체관측</h2>
+        <h2>📢 다가오는 행사 일정</h2>
         ${upcoming.length ? upcoming.map((e) => `
           <div class="notice">
             <span class="dot" style="background:${S.eventTypes[e.type]?.color}"></span>
@@ -80,7 +80,7 @@
   async function calendarView() {
     view.innerHTML = `
       <h1>일정 캘린더</h1>
-      <p class="lead">승인된 실험실 사용 일정과 천체관측·과학행사가 표시됩니다. 일정을 누르면 상세 내용이 나옵니다.</p>
+      <p class="lead">승인된 실험실 사용 일정과 행사 일정(천체관측 포함)이 표시됩니다. 일정을 누르면 상세 내용이 나옵니다.</p>
       <div class="legend">${Object.values(S.eventTypes).map((t) => `<span style="--c:${t.color}">${t.label}</span>`).join("")}
         <span style="--c:#9ca3af">취소된 일정</span></div>
       <div id="cal"></div>
@@ -357,7 +357,7 @@
       });
       return;
     }
-    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사·천체관측 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리" };
+    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리" };
     const years = [0, 1, 2, 3, 4].map((i) => curYear() - i);
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
@@ -516,6 +516,122 @@
     }));
   }
 
+  // ---------- 엑셀 일괄 등록 (행사 일정 / 이수시간 공통) ----------
+  const bulkCard = (what) => `
+    <div class="card bulk">
+      <h2>엑셀로 일괄 등록</h2>
+      <p class="muted">${what}이 많을 때 ① 양식을 내려받아 ② 채운 뒤 ③ 올리면, 미리보기를 확인하고 한꺼번에 등록할 수 있습니다. (xlsx 파일)</p>
+      <div class="actions">
+        <button type="button" class="btn ghost" data-tpl>① 양식 내려받기</button>
+        <label class="btn ghost">② 채운 엑셀 파일 올리기<input type="file" accept=".xlsx" hidden data-up></label>
+      </div>
+      <div data-preview></div>
+    </div>`;
+  // parse(rows) → { head:[열 이름], list:[{row, cells:[글자], item?, msg?, dup?}] }, save(items) → 등록
+  function bindBulk(root, kind, parse, save, after) {
+    const card = root.querySelector(".bulk");
+    const out = card.querySelector("[data-preview]");
+    card.querySelector("[data-tpl]").onclick = (e) => busy(e.target, () => Forms.bulkTemplate(kind));
+    const up = card.querySelector("[data-up]");
+    up.onchange = async () => {
+      const file = up.files[0]; up.value = "";
+      if (!file) return;
+      out.innerHTML = '<p class="muted">읽는 중…</p>';
+      let res;
+      try { res = await parse(await Forms.readBulkXlsx(file)); }
+      catch (err) { out.innerHTML = `<p class="warn">${esc(err.message)}</p>`; return; }
+      const ok = res.list.filter((x) => x.item), dup = res.list.filter((x) => x.dup), bad = res.list.filter((x) => !x.item && !x.dup);
+      out.innerHTML = `
+        <p style="margin:12px 0 6px"><b>${esc(file.name)}</b> · 등록 가능 <b class="ok-t">${ok.length}건</b>
+          ${dup.length ? ` · 중복(건너뜀) <b>${dup.length}건</b>` : ""}${bad.length ? ` · <span class="warn">오류 ${bad.length}건 (등록 안 됨)</span>` : ""}</p>
+        <div class="table-wrap" style="max-height:360px;overflow:auto"><table class="mini">
+          <tr><th>행</th>${res.head.map((h) => `<th>${h}</th>`).join("")}<th>확인</th></tr>
+          ${res.list.map((x) => `<tr class="${x.item ? "" : x.dup ? "muted" : "bad-row"}"><td>${x.row}</td>${x.cells.map((c) => `<td>${esc(c)}</td>`).join("")}
+            <td>${x.item ? "✅" : x.dup ? "중복" : `⚠ ${esc(x.msg)}`}</td></tr>`).join("") || `<tr><td colspan="${res.head.length + 2}" class="muted">입력된 줄이 없습니다.</td></tr>`}
+        </table></div>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn" data-go ${ok.length ? "" : "disabled"}>${ok.length}건 등록하기</button>
+          ${bad.length ? '<span class="muted small">오류 줄은 엑셀에서 고친 뒤 다시 올리면 됩니다. (이미 등록된 줄은 중복으로 건너뜀)</span>' : ""}
+        </div>`;
+      out.querySelector("[data-go]").onclick = (e) => busy(e.target, async () => {
+        if (!confirm(`${ok.length}건을 등록할까요?`)) return;
+        await save(ok.map((x) => x.item));
+        alert(`${ok.length}건이 등록되었습니다.`);
+        after();
+      });
+    };
+  }
+
+  async function parseEventRows(rows) {
+    const T = Forms.cellText;
+    const list = rows.map(({ row, cells }) => {
+      const [type, title, date, start, end, status, note] = cells;
+      const x = { row, cells: [T(type), T(title), Forms.toDateStr(date) || T(date), Forms.toTimeStr(start) || T(start), Forms.toTimeStr(end) || T(end), T(status), T(note)] };
+      if (/^예\)/.test(T(title))) return null; // 예시 줄
+      const ty = T(type), st = T(status);
+      const e = { type: /천체/.test(ty) ? "astro" : !ty || /행사/.test(ty) ? "event" : null, title: T(title), note: T(note),
+        status: !st || /예정/.test(st) ? "scheduled" : /확정/.test(st) ? "confirmed" : /취소/.test(st) ? "cancelled" : null };
+      const d = Forms.toDateStr(date), s = Forms.toTimeStr(start);
+      let en = Forms.toTimeStr(end);
+      if (!e.type) x.msg = "종류는 천체관측 / 과학행사";
+      else if (!e.title) x.msg = "제목이 비어 있음";
+      else if (!d) x.msg = "날짜 형식 (예: 2026-11-20)";
+      else if (!s) x.msg = "시작 시각 형식 (예: 19:30)";
+      else if (T(end) && !en) x.msg = "종료 시각 형식 (예: 21:30)";
+      else if (!e.status) x.msg = "상태는 예정 / 시행 확정 / 취소";
+      if (x.msg) return x;
+      if (!en) { const m = Math.min(+s.slice(0, 2) * 60 + +s.slice(3) + 120, 23 * 60 + 59); en = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; x.cells[4] = en; }
+      if (en <= s) { x.msg = "종료 시각이 시작보다 빠름"; return x; }
+      x.item = { ...e, start: `${d}T${s}`, end: `${d}T${en}` };
+      return x;
+    }).filter(Boolean);
+    // 이미 등록된 일정·파일 안 중복 거르기
+    const items = list.filter((x) => x.item).map((x) => x.item.start.slice(0, 10)).sort();
+    const have = items.length ? await Store.listEvents({ from: items[0], to: addDays(items[items.length - 1], 1) }) : [];
+    const seen = new Set(have.map((e) => `${e.start}|${e.title}`));
+    for (const x of list) {
+      if (!x.item) continue;
+      const k = `${x.item.start}|${x.item.title}`;
+      if (seen.has(k)) { x.dup = true; delete x.item; } else seen.add(k);
+    }
+    return { head: ["종류", "제목", "날짜", "시작", "종료", "상태", "안내"], list };
+  }
+
+  async function parseHourRows(rows) {
+    const T = Forms.cellText;
+    const list = rows.map(({ row, cells }) => {
+      const [sid, date, activity, hours] = cells;
+      const x = { row, cells: [T(sid), Forms.toDateStr(date) || T(date), T(activity), T(hours)] };
+      if (/^예\)/.test(T(activity))) return null;
+      const p = window.parseSid(T(sid).replace(/\D/g, "")), d = Forms.toDateStr(date), h = parseFloat(T(hours));
+      if (!p) x.msg = "학번은 5자리 (예: 20315)";
+      else if (!d) x.msg = "날짜 형식 (예: 2026-11-20)";
+      else if (!T(activity)) x.msg = "활동명이 비어 있음";
+      else if (!(h > 0 && h <= 24)) x.msg = "인정 시간은 0보다 큰 숫자";
+      else x.item = { sid: p.sid, date: d, activity: T(activity), hours: h };
+      return x;
+    }).filter(Boolean);
+    // 이미 있는 기록(같은 학번·날짜·활동명)과 파일 안 중복 거르기
+    const years = [...new Set(list.filter((x) => x.item).map((x) => window.schoolYear(x.item.date)))];
+    const seen = new Set();
+    for (const y of years) for (const h of await Store.listHours(y)) for (const r of h.records || []) seen.add(`${h.sid}|${r.date}|${r.activity}`);
+    for (const x of list) {
+      if (!x.item) continue;
+      const k = `${x.item.sid}|${x.item.date}|${x.item.activity}`;
+      if (seen.has(k)) { x.dup = true; delete x.item; } else seen.add(k);
+    }
+    return { head: ["학번", "날짜", "활동명", "시간"], list };
+  }
+
+  async function saveHourRows(items) {
+    const groups = {};
+    for (const it of items) (groups[JSON.stringify([it.date, it.activity, it.hours])] ||= []).push(it.sid);
+    for (const [k, sids] of Object.entries(groups)) {
+      const [date, activity, hours] = JSON.parse(k);
+      await Store.addHours(sids, { activity, date, hours });
+    }
+  }
+
   async function adminEvents() {
     const events = (await Store.listEvents(window.yearRange(adminYear))).filter((e) => e.type !== "lab").sort((a, b) => b.start.localeCompare(a.start));
     const body = $("#adminBody");
@@ -536,6 +652,7 @@
         <div class="row"><label>안내 문구<input name="note" placeholder="예) 우천 시 취소, 전날 17시 확정 공지"></label></div>
         <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="evReset">새로 작성</button></div>
       </form>
+      ${bulkCard("등록할 행사 일정")}
       <div class="card"><h2>${adminYear}학년도 등록된 일정</h2><div class="table-wrap"><table>
         <tr><th>일시</th><th>제목</th><th>상태 (바로 변경)</th><th></th></tr>
         ${events.map((e) => `<tr>
@@ -553,6 +670,7 @@
       adminEvents();
     });
     $("#evReset").onclick = () => adminEvents();
+    bindBulk(body, "events", parseEventRows, (items) => Store.saveEvents(items), adminEvents);
     const byId = Object.fromEntries(events.map((e) => [e.id, e]));
     body.querySelectorAll("[data-status]").forEach((s) => (s.onchange = async () => {
       await Store.saveEvent({ ...byId[s.dataset.status], status: s.value }); adminEvents();
@@ -584,7 +702,9 @@
         <div class="row"><label>학번 목록 (줄바꿈·쉼표·공백으로 구분)<textarea name="sids" required placeholder="20315&#10;20316&#10;10101"></textarea></label></div>
         <p id="hrPreview" class="muted"></p>
         <button class="btn">입력하기</button>
-      </form>`;
+      </form>
+      ${bulkCard("학생마다 활동·시간이 다르거나 입력할 내역")}`;
+    bindBulk(body, "hours", parseHourRows, saveHourRows, adminHours);
     const f = $("#hrForm");
     const parse = () => {
       const raw = (f.elements.sids.value.match(/\d+/g) || []);

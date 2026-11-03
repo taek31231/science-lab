@@ -190,18 +190,19 @@
   const filledItems = (d) => (d.items || []).filter((it) => it && (it.name || it.price));
 
   // ---------------- 서명 패드 ----------------
-  // 손가락(휴대폰)·마우스로 서명 → 여백을 잘라낸 작은 PNG(data URL)로 돌려줌. 취소하면 null
-  function openSignPad(who) {
+  // 손가락(휴대폰)·마우스로 서명 → 여백을 잘라낸 작은 PNG(data URL)로 돌려줌.
+  // 취소하면 null, 지우고 완료하면 "" (서명 삭제). 이미 서명이 있으면 패드에 그려진 채로 열림
+  function openSignPad(who, existing) {
     return new Promise((done) => {
       const back = document.createElement("div");
       back.className = "sigpad-back";
       back.innerHTML = `
         <div class="sigpad">
           <b>${esc(who)} 서명</b>
-          <p class="muted small">아래 칸에 손가락이나 마우스로 서명하세요.</p>
+          <p class="muted small">아래 칸에 손가락이나 마우스로 서명하세요. 다시 쓰려면 '모두 지우기'를 누르세요.</p>
           <canvas></canvas>
           <div class="actions">
-            <button type="button" class="btn ghost sm" data-b="clear">지우기</button>
+            <button type="button" class="btn bad sm" data-b="clear">모두 지우기</button>
             <span style="flex:1"></span>
             <button type="button" class="btn ghost sm" data-b="cancel">취소</button>
             <button type="button" class="btn sm" data-b="ok">완료</button>
@@ -214,6 +215,15 @@
       const g = cv.getContext("2d");
       g.scale(ratio, ratio); g.lineWidth = 2.6; g.lineCap = g.lineJoin = "round"; g.strokeStyle = "#111";
       let drawing = false, drawn = false, last = null;
+      if (existing) { // 저장된 서명을 패드 가운데에 그려 둠
+        const im = new Image();
+        im.onload = () => {
+          const W = cv.clientWidth, H = cv.clientHeight;
+          const k = Math.min((W - 20) / im.width, (H - 20) / im.height, 1.6);
+          g.drawImage(im, (W - im.width * k) / 2, (H - im.height * k) / 2, im.width * k, im.height * k);
+        };
+        im.src = existing; drawn = true;
+      }
       const pt = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
       cv.addEventListener("pointerdown", (e) => { drawing = true; last = pt(e); try { cv.setPointerCapture(e.pointerId); } catch {} g.beginPath(); g.arc(last[0], last[1], 1.2, 0, 7); g.fillStyle = "#111"; g.fill(); drawn = true; });
       cv.addEventListener("pointermove", (e) => {
@@ -225,9 +235,13 @@
       const close = (v) => { back.remove(); done(v); };
       back.addEventListener("click", (e) => {
         const b = e.target.dataset.b;
-        if (b === "clear") { g.clearRect(0, 0, cv.width, cv.height); drawn = false; }
+        if (b === "clear") { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height); g.restore(); drawn = false; }
         if (b === "cancel") close(null);
-        if (b === "ok") { if (!drawn) return alert("서명을 해 주세요."); close(trimSignature(cv)); }
+        if (b === "ok") {
+          if (drawn) return close(trimSignature(cv));
+          if (existing) return close(""); // 지우고 완료 → 서명 삭제
+          alert("서명을 해 주세요.");
+        }
       });
     });
   }
@@ -250,10 +264,12 @@
   document.addEventListener("click", async (e) => {
     const box = e.target.closest && e.target.closest(".sig[data-sig]");
     if (!box || box.closest(".frozen,.export-holder")) return;
-    const url = await openSignPad(box.dataset.who || "");
-    if (!url) return;
     const inp = box.querySelector("input"), img = box.querySelector("img");
-    inp.value = url; img.src = url; box.classList.add("has");
+    const url = await openSignPad(box.dataset.who || "", inp.value);
+    if (url === null) return; // 취소
+    inp.value = url;
+    if (url) img.src = url; else img.removeAttribute("src");
+    box.classList.toggle("has", !!url);
     inp.dispatchEvent(new Event("input", { bubbles: true })); // 임시저장
   });
 
@@ -420,5 +436,127 @@
     await saveWorkbook(wb, filename);
   }
 
-  window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, backupXlsx, filledItems, fmt, won };
+  // ---------------- 일괄 등록용 엑셀 양식 / 읽기 ----------------
+  // 양식: 1행 제목줄, 2행 회색 예시줄(제목·활동명이 '예)'로 시작하면 읽을 때 건너뜀), 3행부터 입력
+  const BULK = {
+    events: {
+      file: "행사일정_일괄등록_양식.xlsx", sheet: "행사 일정",
+      cols: [["종류", 12], ["제목", 30], ["날짜", 13], ["시작 시각", 11], ["종료 시각", 11], ["상태", 13], ["안내 문구", 36]],
+      example: ["천체관측", "예) 11월 천체관측 (목성·토성)", "2026-11-20", "19:30", "21:30", "예정", "우천 시 취소, 전날 17시 확정 공지"],
+      lists: { 1: ['"천체관측,과학행사"'], 6: ['"예정,시행 확정,취소"'] },
+      help: [
+        "■ 행사 일정 일괄 등록 양식 작성 방법",
+        "",
+        "1. '행사 일정' 시트의 3행부터 한 줄에 행사 하나씩 적습니다. (2행 회색 줄은 예시라 등록되지 않습니다)",
+        "2. 종류: 천체관측 / 과학행사 중 선택 (비우면 과학행사)",
+        "3. 날짜: 2026-11-20 처럼 입력 (2026.11.20, 2026/11/20 도 됩니다)",
+        "4. 시작·종료 시각: 19:30 처럼 24시간제로 입력. 종료 시각을 비우면 시작 2시간 뒤로 등록됩니다.",
+        "5. 상태: 예정 / 시행 확정 / 취소 중 선택 (비우면 예정)",
+        "6. 안내 문구는 선택 사항입니다.",
+        "7. 다 채운 뒤 저장해서 관리자 → 행사 일정 → '엑셀 파일 올리기'로 올리면 미리보기 후 일괄 등록됩니다.",
+        "   같은 날짜·시각·제목의 일정이 이미 있으면 중복으로 보고 건너뜁니다."
+      ]
+    },
+    hours: {
+      file: "이수시간_일괄등록_양식.xlsx", sheet: "이수시간",
+      cols: [["학번", 10], ["날짜", 13], ["활동명", 34], ["인정 시간", 11]],
+      example: ["20315", "2026-11-20", "예) 11월 천체관측", 2],
+      lists: {},
+      help: [
+        "■ 이수시간 일괄 등록 양식 작성 방법",
+        "",
+        "1. '이수시간' 시트의 3행부터 한 줄에 학생 한 명의 활동 하나씩 적습니다. (2행 회색 줄은 예시라 등록되지 않습니다)",
+        "2. 학번: 5자리 (학년 1자리 + 반 2자리 + 번호 2자리, 예: 20315 = 2학년 3반 15번). 이름은 적지 않습니다.",
+        "3. 날짜: 활동한 날 (2026-11-20 처럼). 3월 1일 기준으로 학년도가 자동으로 정해집니다.",
+        "4. 활동명: 예) 과학의 날 행사, 11월 천체관측",
+        "5. 인정 시간: 숫자 (0.5 단위 가능, 예: 2 또는 1.5)",
+        "6. 같은 활동에 여러 학생이면 학번만 바꿔서 여러 줄로 적으면 됩니다. (날짜·활동명 칸은 복사해서 붙여넣기)",
+        "7. 다 채운 뒤 저장해서 관리자 → 이수시간 입력 → '엑셀 파일 올리기'로 올리면 미리보기 후 일괄 등록됩니다.",
+        "   같은 학번·날짜·활동명 기록이 이미 있으면 중복으로 보고 건너뜁니다."
+      ]
+    }
+  };
+
+  async function bulkTemplate(kind) {
+    await loadScript(LIB.exceljs);
+    const t = BULK[kind];
+    const wb = new window.ExcelJS.Workbook();
+    const ws = wb.addWorksheet(t.sheet, { views: [{ state: "frozen", ySplit: 1 }] });
+    ws.columns = t.cols.map(([, w]) => ({ width: w, style: { numFmt: "@" } })); // 글자 형식 (날짜·학번이 바뀌지 않게)
+    ws.addRow(t.cols.map(([h]) => h));
+    ws.addRow(t.example);
+    const thin = { style: "thin", color: { argb: "FFBFBFBF" } };
+    for (let r = 1; r <= 202; r++) {
+      const row = ws.getRow(r);
+      t.cols.forEach((_, i) => {
+        const c = row.getCell(i + 1);
+        c.border = { top: thin, left: thin, bottom: thin, right: thin };
+        c.font = { name: "맑은 고딕", size: 10, bold: r === 1, italic: r === 2, color: { argb: r === 2 ? "FF8C8C8C" : "FF000000" } };
+        c.alignment = { vertical: "middle" };
+        if (r === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } };
+        if (r >= 2 && t.lists[i + 1]) c.dataValidation = { type: "list", allowBlank: true, formulae: t.lists[i + 1] };
+      });
+    }
+    const help = wb.addWorksheet("작성 방법");
+    help.getColumn(1).width = 110;
+    t.help.forEach((line, i) => { const c = help.getCell(i + 1, 1); c.value = line; c.font = { name: "맑은 고딕", size: 11, bold: i === 0 }; });
+    await saveWorkbook(wb, t.file);
+  }
+
+  // 셀 값 → 글자 / 날짜(YYYY-MM-DD) / 시각(HH:MM)
+  const p2 = (n) => String(n).padStart(2, "0");
+  function cellRaw(v) {
+    if (v == null) return "";
+    if (v instanceof Date) return v;
+    if (typeof v === "object") {
+      if (v.richText) return v.richText.map((x) => x.text).join("");
+      if ("result" in v) return cellRaw(v.result);
+      if (v.text != null) return cellRaw(v.text);
+      return "";
+    }
+    return v;
+  }
+  const cellText = (v) => { const r = cellRaw(v); return r instanceof Date ? toDateStr(r) : String(r).trim(); };
+  function toDateStr(v) {
+    v = cellRaw(v);
+    if (v instanceof Date) return `${v.getUTCFullYear()}-${p2(v.getUTCMonth() + 1)}-${p2(v.getUTCDate())}`;
+    if (typeof v === "number" && v > 20000) { const d = new Date(Math.round((v - 25569) * 864e5)); return toDateStr(d); }
+    const m = String(v).match(/(\d{4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})/);
+    if (!m) return "";
+    const s = `${m[1]}-${p2(m[2])}-${p2(m[3])}`;
+    const d = new Date(s + "T00:00:00Z");
+    return d.getUTCDate() === +m[3] ? s : ""; // 2월 30일 같은 없는 날짜 거르기
+  }
+  function toTimeStr(v) {
+    v = cellRaw(v);
+    if (v instanceof Date) return `${p2(v.getUTCHours())}:${p2(v.getUTCMinutes())}`;
+    if (typeof v === "number" && v >= 0 && v < 1) { const m = Math.round(v * 1440); return `${p2(Math.floor(m / 60))}:${p2(m % 60)}`; }
+    const m = String(v).match(/^\s*(오전|오후)?\s*(\d{1,2})\s*(?:[:시]\s*(\d{1,2})?\s*분?)?\s*$/);
+    if (!m) return "";
+    let h = +m[2]; const mi = +(m[3] || 0);
+    if (m[1] === "오후" && h < 12) h += 12;
+    if (m[1] === "오전" && h === 12) h = 0;
+    return h < 24 && mi < 60 ? `${p2(h)}:${p2(mi)}` : "";
+  }
+  // 올린 엑셀의 첫 시트를 [{row, cells:[…]}] 로 (제목줄 제외, 빈 줄 제외)
+  async function readBulkXlsx(file) {
+    if (!/\.xlsx$/i.test(file.name)) throw new Error("xlsx 파일만 올릴 수 있습니다. (엑셀에서 '다른 이름으로 저장 → Excel 통합 문서(*.xlsx)')");
+    await loadScript(LIB.exceljs);
+    const wb = new window.ExcelJS.Workbook();
+    await wb.xlsx.load(await file.arrayBuffer());
+    const ws = wb.worksheets[0];
+    if (!ws) throw new Error("시트를 찾을 수 없습니다.");
+    const rows = [];
+    ws.eachRow({ includeEmpty: false }, (r, n) => {
+      if (n === 1) return;
+      const cells = [];
+      for (let i = 1; i <= 8; i++) cells.push(r.getCell(i).value);
+      if (cells.every((c) => cellText(c) === "")) return;
+      rows.push({ row: n, cells });
+    });
+    return rows;
+  }
+
+  window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, backupXlsx, filledItems, fmt, won,
+    bulkTemplate, readBulkXlsx, cellText, toDateStr, toTimeStr };
 })();

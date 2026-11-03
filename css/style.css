@@ -197,6 +197,9 @@ table.mini th, table.mini td { padding: 5px 6px; border: 1px solid var(--line); 
 .export-holder { position: absolute; left: -10000px; top: 0; width: 210mm; }
 
 .btn:disabled { opacity: .4; cursor: not-allowed; }
+label.btn { display: inline-flex; align-items: center; cursor: pointer; flex-direction: row; }
+tr.bad-row td { background: #fef2f2; color: #b91c1c; }
+.ok-t { color: #15803d; }
 
 /* 서명 칸 */
 .a4 .sig { display: inline-flex; align-items: center; justify-content: center; gap: 1mm; position: relative; vertical-align: middle;

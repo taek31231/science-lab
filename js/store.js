@@ -162,6 +162,11 @@
         const d = load(); const id = ev.id || uid();
         d.events[id] = { ...ev, id }; save(d); return id;
       },
+      async saveEvents(list) {
+        const d = load();
+        for (const ev of list) { const id = uid(); d.events[id] = { ...ev, id }; }
+        save(d);
+      },
       async deleteEvent(id) { const d = load(); delete d.events[id]; save(d); },
       async getHours(sid, year = schoolYear()) { return load().hours[`${year}_${sid}`] || null; },
       async addHours(sids, rec) {
@@ -283,16 +288,25 @@
       },
       async addHours(sids, rec) {
         const y = schoolYear(rec.date);
-        const b = db.batch();
-        for (const s of sids) {
-          const p = parseSid(s); if (!p) continue;
-          b.set(db.collection("hours").doc(`${y}_${p.sid}`), {
-            year: y, ...p,
-            total: FV.increment(rec.hours),
-            records: FV.arrayUnion({ ...rec, id: uid() })
-          }, { merge: true });
+        const ok = sids.map(parseSid).filter(Boolean);
+        for (let i = 0; i < ok.length; i += 400) { // 한 번에 최대 500건 제한
+          const b = db.batch();
+          for (const p of ok.slice(i, i + 400)) {
+            b.set(db.collection("hours").doc(`${y}_${p.sid}`), {
+              year: y, ...p,
+              total: FV.increment(rec.hours),
+              records: FV.arrayUnion({ ...rec, id: uid() })
+            }, { merge: true });
+          }
+          await b.commit();
         }
-        await b.commit();
+      },
+      async saveEvents(list) {
+        for (let i = 0; i < list.length; i += 400) {
+          const b = db.batch();
+          for (const ev of list.slice(i, i + 400)) b.set(db.collection("events").doc(), ev);
+          await b.commit();
+        }
       },
       async listHours(year) {
         const q = await db.collection("hours").where("year", "==", year).get();
