@@ -2,12 +2,12 @@
 // Firebase 콘솔 > 프로젝트 설정 > 내 앱(웹)에서 복사한 값을 붙여넣으세요.
 // apiKey가 비어 있으면 "데모 모드"로 동작합니다 (데이터가 이 브라우저에만 저장됨).
 window.FIREBASE_CONFIG = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyDcY4bUefVLmqJJ9JmyXxXgEAV_DJwfsuI",
+  authDomain: "science-lab-a3ef2.firebaseapp.com",
+  projectId: "science-lab-a3ef2",
+  storageBucket: "science-lab-a3ef2.firebasestorage.app",
+  messagingSenderId: "963858416664",
+  appId: "1:963858416664:web:68cf0b19f25eeb93862f6d"
 };
 
 window.SITE = {
