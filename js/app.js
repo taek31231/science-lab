@@ -184,6 +184,8 @@
       if (!d.purpose) miss.push("사용 목적");
       if (!u0.sid || !u0.name) miss.push("사용자 1번 학번·이름");
       if (!d.teacher) miss.push("지도교사");
+      if (!d.sign?.teacher) miss.push("지도교사 서명 ((인) 칸을 눌러 서명)");
+      if (!d.sign?.applicant) miss.push("신청자 서명 (신청서 맨 아래 (자필서명) 칸)");
       if (!d.agree) miss.push("준수사항 서약 체크 (신청서 맨 아래)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       const badSid = (d.users || []).find((u) => u.sid && !window.parseSid(u.sid));
@@ -258,6 +260,8 @@
       if (!data.purpose) miss.push("실험 목적 및 내용");
       if (!data.sid || !data.name) miss.push("신청자 학번 / 이름");
       if (!data.teacher) miss.push("지도교사");
+      if (!data.sign?.applicant) miss.push("신청자 서명 (서명 칸을 눌러 서명)");
+      if (!data.sign?.teacher) miss.push("지도교사 서명 ((인) 칸을 눌러 서명)");
       if (!Forms.filledItems(data).length) miss.push("구입 품목 (한 줄 이상)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요 (예: 20315).");
@@ -371,6 +375,29 @@
     await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup })[adminTab]();
   }
 
+  // 서명 미리보기 + '지도교사 확인' 체크 (체크해야 승인 버튼이 눌림)
+  const signCheck = (r) => {
+    const s = r.sign || {};
+    const img = (u, who) => `<span>${who} ${u ? `<img src="${esc(u)}" alt="${who} 서명">` : '<span class="muted">(서명 없음)</span>'}</span>`;
+    return `<div class="sig-thumbs">${img(s.applicant, "신청자")}${img(s.teacher, `지도교사(${esc(r.teacher || "-")})`)}
+      <label class="inline-check"><input type="checkbox" data-tcheck="${esc(r.id)}" ${r.teacherChecked ? "checked" : ""}>
+        <b>지도교사 확인함</b> <span class="muted small">(메신저·전화 등으로 지도교사에게 확인)</span></label></div>`;
+  };
+  const approveLock = (r) => (r.teacherChecked || r.status === "approved" ? "" : 'disabled title="지도교사 확인을 먼저 체크하세요"');
+  function bindTeacherCheck(body, kind, byId) {
+    body.querySelectorAll("[data-tcheck]").forEach((c) => (c.onchange = async () => {
+      const id = c.dataset.tcheck, on = c.checked;
+      c.disabled = true;
+      try {
+        await Store.setTeacherChecked(kind, id, on);
+        byId[id].teacherChecked = on;
+        const btn = body.querySelector(`[data-act="approved"][data-id="${CSS.escape(id)}"]`);
+        if (btn && byId[id].status !== "approved") { btn.disabled = !on; btn.title = on ? "" : "지도교사 확인을 먼저 체크하세요"; }
+      } catch (err) { c.checked = !on; alert("저장하지 못했습니다: " + err.message); }
+      c.disabled = false;
+    }));
+  }
+
   async function adminRequests() {
     const reqs = await Store.listRequests(adminYear);
     const dates = reqs.filter((r) => r.date).map((r) => r.date).sort();
@@ -396,9 +423,10 @@
         <p class="muted" style="margin:0">재료·기자재: ${esc(mats.join(", ") || "없음")}</p>
         <p class="muted" style="margin:0 0 6px">시약: ${esc(reag.join(", ") || "없음")}${r.plan?.title ? ` · 실험 제목: ${esc(r.plan.title)}` : ""}</p>
         ${c ? `<p class="warn">⚠ 겹치는 승인 일정: ${esc(c.title)} ${fmtDate(c.start)}</p>` : ""}
+        ${signCheck(r)}
         <div class="actions">
           <input placeholder="학생에게 보낼 메모 (반려 사유 등)" data-note="${esc(r.id)}" value="${esc(r.adminNote)}" style="flex:1;min-width:200px">
-          <button class="btn ok sm" data-act="approved" data-id="${esc(r.id)}">승인</button>
+          <button class="btn ok sm" data-act="approved" data-id="${esc(r.id)}" ${approveLock(r)}>승인</button>
           <button class="btn bad sm" data-act="rejected" data-id="${esc(r.id)}">반려</button>
           <button class="btn ghost sm" data-pdf="${esc(r.id)}">신청서 PDF</button>
         </div>
@@ -413,6 +441,7 @@
       await Store.decideRequest(b.dataset.id, b.dataset.act, note);
       adminRequests();
     }));
+    bindTeacherCheck(body, "lab", byId);
     body.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => {
       const r = byId[b.dataset.pdf];
       busy(b, () => Forms.dataToPDF("lab", r, `실험실사용신청서_${r.date}_${userList(r)[0]?.name || ""}.pdf`));
@@ -452,9 +481,10 @@
                 ${Forms.filledItems(p).map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.spec)}</td><td>${esc(it.qty)}</td>
                   <td>${Forms.won(it.price)}</td><td>${Forms.won((+it.qty || 0) * (+it.price || 0))}</td><td>${esc(it.site)}</td><td>${esc(it.code)}</td></tr>`).join("")}
               </table>
+              <div style="margin-top:8px">${signCheck(p)}</div>
               <div class="actions" style="margin-top:8px">
                 <input placeholder="학생에게 보낼 메모" data-note="${esc(p.id)}" value="${esc(p.adminNote)}" style="flex:1;min-width:200px">
-                <button class="btn ok sm" data-act="approved" data-id="${esc(p.id)}">승인</button>
+                <button class="btn ok sm" data-act="approved" data-id="${esc(p.id)}" ${approveLock(p)}>승인</button>
                 <button class="btn bad sm" data-act="rejected" data-id="${esc(p.id)}">반려</button>
                 <button class="btn ghost sm" data-pdf="${esc(p.id)}">신청서 PDF</button>
                 <button class="btn ghost sm" data-xls="${esc(p.id)}">이 팀만 엑셀</button>
@@ -475,6 +505,7 @@
       await Store.decidePurchase(b.dataset.id, b.dataset.act, note);
       adminPurchases();
     }));
+    bindTeacherCheck(body, "purchase", byId);
     body.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => {
       const p = byId[b.dataset.pdf];
       busy(b, () => Forms.dataToPDF("purchase", p, `물품구입신청서_${p.team || p.name}.pdf`));

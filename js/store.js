@@ -145,6 +145,11 @@
         const d = load(); const p = d.purchases[id]; if (!p) throw new Error("신청을 찾을 수 없습니다");
         p.status = status; p.adminNote = adminNote || ""; save(d);
       },
+      async setTeacherChecked(kind, id, on) {
+        const d = load(); const r = (kind === "lab" ? d.requests : d.purchases)[id];
+        if (!r) throw new Error("신청을 찾을 수 없습니다");
+        r.teacherChecked = !!on; save(d);
+      },
       async listStatusByTeam(team) {
         const d = load(), key = teamKey(team);
         return [
@@ -259,6 +264,10 @@
         b.update(db.collection("purchaseRequests").doc(id), { status, adminNote: adminNote || "", decidedAt: FV.serverTimestamp() });
         b.set(db.collection("statusBoard").doc(id), { status, adminNote: adminNote || "" }, { merge: true });
         await b.commit();
+      },
+      // 관리자가 지도교사에게 확인했는지 표시 (관리자만 수정 가능)
+      async setTeacherChecked(kind, id, on) {
+        await db.collection(kind === "lab" ? "labRequests" : "purchaseRequests").doc(id).update({ teacherChecked: !!on });
       },
       // range 를 주면 그 기간 일정만 읽습니다 (읽기 횟수 절약)
       async listEvents(range) { return (await eventsQuery(range).get()).docs.map(withId); },

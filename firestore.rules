@@ -22,10 +22,18 @@ service cloud.firestore {
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && request.resource.data.keys().hasOnly(['year','team','date','start','end','lab','purpose','teacher','users',
-             'materials','reagents','plan','agree','applyDate','status','adminNote','createdAt'])
+             'materials','reagents','plan','agree','applyDate','status','adminNote','createdAt','sign'])
         && request.resource.data.team.size() < 60
         && request.resource.data.purpose.size() < 300
-        && request.resource.data.reagents.size() <= 20;
+        && request.resource.data.reagents.size() <= 20
+        && signOk(request.resource.data);
+    }
+
+    // 서명 이미지(신청자·지도교사): 크기 제한 (각 100KB 미만)
+    function signOk(d) {
+      return !('sign' in d) || (d.sign.keys().hasOnly(['applicant','teacher'])
+        && d.sign.get('applicant', '').size() < 100000
+        && d.sign.get('teacher', '').size() < 100000);
     }
 
     // 물품 구입 신청 원본: 실험실 신청과 같은 방식
@@ -34,9 +42,10 @@ service cloud.firestore {
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && request.resource.data.keys().hasOnly(['year','purpose','sid','name','useDate','teacher','team',
-             'items','status','adminNote','createdAt'])
+             'items','status','adminNote','createdAt','sign'])
         && request.resource.data.team.size() < 60
-        && request.resource.data.items.size() <= 40;
+        && request.resource.data.items.size() <= 40
+        && signOk(request.resource.data);
     }
 
     // 신청 결과 요약 (팀명·일시·상태·메모만, 이름·학번 없음): 누구나 팀명으로 조회

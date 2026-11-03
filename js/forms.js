@@ -28,6 +28,15 @@
   }
   const mirror = (d, k, kind = "") => `<span data-mirror="${k}" data-fmt="${kind}">${esc(fmt(get(d, k), kind))}</span>`;
 
+  // 서명 칸: 누르면 서명 패드가 열림. 서명 전에는 (인)/(자필서명) 글자가 보이고, PDF에도 그대로 찍힘
+  const SIG = (d, k, ph, who) => {
+    const val = get(d, k) || "";
+    return `<span class="sig ${val ? "has" : ""}" data-sig="${k}" data-who="${esc(who)}" title="${esc(who)} 서명">` +
+      `<input type="hidden" data-k="${k}" value="${esc(val)}">` +
+      `<img alt="" ${val ? `src="${esc(val)}"` : ""}>` +
+      `<span class="sig-ph">${ph}</span><span class="sig-hint no-export">✍ 서명</span></span>`;
+  };
+
   // ---------------- 실험실 사용 신청서 (3종) ----------------
   function labSheets(d) {
     const u = (i) => `<tr><th>${i + 1}</th><td>${I(d, `users.${i}.sid`, 'inputmode="numeric" maxlength="5"')}</td><td>${I(d, `users.${i}.name`)}</td>`;
@@ -45,7 +54,7 @@
           <th>실험 장소</th><td>${SEL(d, "lab", S.labs)}</td></tr>
         <tr class="h9"><th>사용 목적</th><td colspan="5">${I(d, "purpose", 'placeholder="예) 케미스토리 동아리 – 산화환원 적정 실험"')}</td></tr>
         <tr><th rowspan="4">사용자</th><th></th><th>학번</th><th>이름</th><th colspan="2">지도교사 확인</th></tr>
-        ${u(0)}<td colspan="2" rowspan="3" class="sign">${I(d, "teacher", 'placeholder="지도교사 성함" class="w-teacher"')}<span class="in">(인)</span></td></tr>
+        ${u(0)}<td colspan="2" rowspan="3" class="sign">${I(d, "teacher", 'placeholder="지도교사 성함" class="w-teacher"')}<span class="in">${SIG(d, "sign.teacher", "(인)", "지도교사")}</span></td></tr>
         ${u(1)}</tr>${u(2)}</tr>
         <tr><th>실험 재료<br>및<br>기자재<br>요청 사항</th><td colspan="5" class="inner">
           <table class="f mat"><colgroup><col style="width:21%"><col style="width:18%"><col style="width:9%"><col style="width:21%"><col style="width:18%"><col style="width:9%"></colgroup>
@@ -73,7 +82,7 @@
       </table>
       <p class="pledge">본인은 상기 사용자 준수사항을 지킬 것을 서약하며, 내용과 같이 사용을 신청합니다.</p>
       <p class="pledge">${esc(fmt(d.applyDate || today, "date"))}</p>
-      <p class="pledge">신청자 <span class="signline">${mirror(d, "users.0.name")}</span> (자필서명)</p>
+      <p class="pledge">신청자 <span class="signline">${mirror(d, "users.0.name")}</span> ${SIG(d, "sign.applicant", "(자필서명)", "신청자")}</p>
       <label class="agree no-export"><input type="checkbox" data-k="agree" ${d.agree ? "checked" : ""}> 위 준수사항을 지킬 것을 서약합니다 (온라인 제출 시 필수)</label>
     </div>`;
 
@@ -146,9 +155,10 @@
       <table class="f thick">
         <colgroup><col style="width:58%"><col style="width:42%"></colgroup>
         <tr><td class="top" style="height:27mm"><b>실험 목적 및 내용:</b>${T(d, "purpose", "17mm")}</td>
-            <td class="top"><b>신청자 학번 / 이름:</b><div class="pair">${I(d, "sid", 'inputmode="numeric" maxlength="5" placeholder="학번"')} / ${I(d, "name", 'placeholder="이름"')}</div></td></tr>
+            <td class="top"><b>신청자 학번 / 이름:</b><div class="pair">${I(d, "sid", 'inputmode="numeric" maxlength="5" placeholder="학번"')} / ${I(d, "name", 'placeholder="이름"')}</div>
+              <div class="pair"><b>서명 :</b> ${SIG(d, "sign.applicant", "(서명)", "신청자")}</div></td></tr>
         <tr class="h11"><td class="nw"><b>사용예정일 :</b> ${I(d, "useDate", 'type="date" data-fmt="date" class="w-date"')}</td>
-            <td class="nw"><b>지도교사 :</b> ${I(d, "teacher", 'class="w-teacher"')} <b class="in2">(인)</b></td></tr>
+            <td class="nw"><b>지도교사 :</b> ${I(d, "teacher", 'class="w-teacher"')} <span class="in2">${SIG(d, "sign.teacher", "<b>(인)</b>", "지도교사")}</span></td></tr>
       </table>
       <table class="f thick items">
         <colgroup><col style="width:22%"><col style="width:17%"><col style="width:7.5%"><col style="width:12.5%"><col style="width:12.5%"><col style="width:10.5%"><col style="width:18%"></colgroup>
@@ -179,6 +189,74 @@
   }
   const filledItems = (d) => (d.items || []).filter((it) => it && (it.name || it.price));
 
+  // ---------------- 서명 패드 ----------------
+  // 손가락(휴대폰)·마우스로 서명 → 여백을 잘라낸 작은 PNG(data URL)로 돌려줌. 취소하면 null
+  function openSignPad(who) {
+    return new Promise((done) => {
+      const back = document.createElement("div");
+      back.className = "sigpad-back";
+      back.innerHTML = `
+        <div class="sigpad">
+          <b>${esc(who)} 서명</b>
+          <p class="muted small">아래 칸에 손가락이나 마우스로 서명하세요.</p>
+          <canvas></canvas>
+          <div class="actions">
+            <button type="button" class="btn ghost sm" data-b="clear">지우기</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn ghost sm" data-b="cancel">취소</button>
+            <button type="button" class="btn sm" data-b="ok">완료</button>
+          </div>
+        </div>`;
+      document.body.appendChild(back);
+      const cv = back.querySelector("canvas");
+      const ratio = window.devicePixelRatio || 1;
+      cv.width = cv.clientWidth * ratio; cv.height = cv.clientHeight * ratio;
+      const g = cv.getContext("2d");
+      g.scale(ratio, ratio); g.lineWidth = 2.6; g.lineCap = g.lineJoin = "round"; g.strokeStyle = "#111";
+      let drawing = false, drawn = false, last = null;
+      const pt = (e) => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+      cv.addEventListener("pointerdown", (e) => { drawing = true; last = pt(e); try { cv.setPointerCapture(e.pointerId); } catch {} g.beginPath(); g.arc(last[0], last[1], 1.2, 0, 7); g.fillStyle = "#111"; g.fill(); drawn = true; });
+      cv.addEventListener("pointermove", (e) => {
+        if (!drawing) return;
+        const p = pt(e); g.beginPath(); g.moveTo(...last); g.lineTo(...p); g.stroke(); last = p; drawn = true;
+      });
+      const stop = () => (drawing = false);
+      cv.addEventListener("pointerup", stop); cv.addEventListener("pointercancel", stop);
+      const close = (v) => { back.remove(); done(v); };
+      back.addEventListener("click", (e) => {
+        const b = e.target.dataset.b;
+        if (b === "clear") { g.clearRect(0, 0, cv.width, cv.height); drawn = false; }
+        if (b === "cancel") close(null);
+        if (b === "ok") { if (!drawn) return alert("서명을 해 주세요."); close(trimSignature(cv)); }
+      });
+    });
+  }
+  function trimSignature(cv) {
+    const { width: w, height: h } = cv;
+    const px = cv.getContext("2d").getImageData(0, 0, w, h).data;
+    let x0 = w, y0 = h, x1 = 0, y1 = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (px[(y * w + x) * 4 + 3] > 20) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    const pad = 6; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+    const sw = x1 - x0 + 1, sh = y1 - y0 + 1;
+    const k = Math.min(1, 100 / sh, 300 / sw); // 최대 300×100 픽셀 (용량 작게)
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(sw * k)); out.height = Math.max(1, Math.round(sh * k));
+    out.getContext("2d").drawImage(cv, x0, y0, sw, sh, 0, 0, out.width, out.height);
+    return out.toDataURL("image/png");
+  }
+  // 신청서 화면의 서명 칸 누르기 → 서명 패드
+  document.addEventListener("click", async (e) => {
+    const box = e.target.closest && e.target.closest(".sig[data-sig]");
+    if (!box || box.closest(".frozen,.export-holder")) return;
+    const url = await openSignPad(box.dataset.who || "");
+    if (!url) return;
+    const inp = box.querySelector("input"), img = box.querySelector("img");
+    inp.value = url; img.src = url; box.classList.add("has");
+    inp.dispatchEvent(new Event("input", { bubbles: true })); // 임시저장
+  });
+
   // ---------------- PDF ----------------
   const loaded = {};
   const loadScript = (src) => loaded[src] || (loaded[src] = new Promise((ok, no) => {
@@ -196,6 +274,7 @@
     clone.classList.add("frozen");
     const a = [...src.querySelectorAll("input,textarea,select")], b = [...clone.querySelectorAll("input,textarea,select")];
     a.forEach((el, i) => {
+      if (el.type === "hidden") return b[i].remove(); // 서명 데이터 (이미지는 그대로 찍힘)
       const box = document.createElement(el.tagName === "TEXTAREA" ? "div" : "span");
       box.className = "fv " + (el.className || "");
       let val = el.type === "checkbox" ? (el.checked ? "☑" : "☐") : el.value;

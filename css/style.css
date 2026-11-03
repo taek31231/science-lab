@@ -195,4 +195,28 @@ table.mini th, table.mini td { padding: 5px 6px; border: 1px solid var(--line); 
 .a4.frozen div.fv { overflow: hidden; padding: .5mm 1mm; }
 .a4.frozen { box-shadow: none; margin: 0; }
 .export-holder { position: absolute; left: -10000px; top: 0; width: 210mm; }
+
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* 서명 칸 */
+.a4 .sig { display: inline-flex; align-items: center; justify-content: center; gap: 1mm; position: relative; vertical-align: middle;
+  min-width: 24mm; height: 10mm; padding: 0 1mm; border: 1px dashed #60a5fa; border-radius: 2px; background: #eaf2ff; cursor: pointer; }
+.a4 .sig img { display: none; max-height: 100%; max-width: 34mm; }
+.a4 .sig.has img { display: block; }
+.a4 .sig.has .sig-ph, .a4 .sig.has .sig-hint { display: none; }
+.a4 .sig-hint { color: #2563eb; font-size: 8.5pt; }
+.a4 .sig:hover { background: #dbeafe; }
+.a4.frozen .sig { border: 0; background: none; }
+.a4 .pledge .sig { margin-left: 1mm; }
+.a4 td.sign .in { bottom: 1.5mm; }
+.a4.purchase td .w-teacher { width: 24mm; }
+.a4.purchase .in2 { margin-left: 1.5mm; }
+.a4.purchase .sig { min-width: 20mm; }
+.a4.purchase .sig img { max-width: 26mm; }
+.sigpad-back { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.sigpad { background: #fff; border-radius: 12px; padding: 16px; width: min(520px, 100%); }
+.sigpad p { margin: 4px 0 10px; }
+.sigpad canvas { display: block; width: 100%; height: 200px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; touch-action: none; margin-bottom: 12px; }
+.sig-thumbs { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 4px 0 6px; }
+.sig-thumbs img { height: 34px; border: 1px solid #e5e7eb; border-radius: 4px; background: #fff; padding: 2px; vertical-align: middle; }
 .code { font-family: Consolas, monospace; background: #f3f4f6; padding: 2px 8px; border-radius: 6px; font-size: 16px; user-select: all; }
