@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>과학실 예약·이수시간</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand"><span class="logo">⚗</span> <span id="brandName">과학중점</span></a>
+    <button class="menu-btn" aria-label="메뉴" onclick="document.body.classList.toggle('nav-open')">☰</button>
+    <nav>
+      <a href="#/">홈</a>
+      <a href="#/calendar">일정 캘린더</a>
+      <a href="#/apply">실험실 신청</a>
+      <a href="#/purchase">물품 구입 신청</a>
+      <a href="#/status">신청 결과 조회</a>
+      <a href="#/hours">이수시간 조회</a>
+      <a href="#/admin" class="admin-link">관리자</a>
+    </nav>
+  </header>
+  <div id="demoBanner" class="demo-banner" hidden>데모 모드: Firebase 연결 전이라 데이터가 이 브라우저에만 저장됩니다.</div>
+  <main id="view"></main>
+  <footer class="footer"><span id="footerDept"></span> · 과학실무사</footer>
+
+  <!-- 캘린더 -->
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.15/locales/ko.global.min.js"></script>
+  <!-- Firebase (compat SDK: 빌드 도구 없이 사용) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script src="js/config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/forms.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
