@@ -75,7 +75,7 @@
         ${tile("#/calendar", "📅", "일정 캘린더", "실험실 예약 현황과 행사 일정")}
         ${tile("#/apply", "🧪", "실험실 사용 신청", "신청서·시약 조사서·계획서 작성, PDF 저장")}
         ${tile("#/purchase", "🛒", "물품 구입 신청", "신청서 작성 후 PDF·엑셀로 저장")}
-        ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인/반려 확인")}
+        ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인 여부·구매 진행 상황 확인")}
         ${tile("#/hours", "⏱", "이수시간 조회", `학번으로 ${S.targetHours}시간 달성 현황 확인`)}
       </div>`;
   }
@@ -216,7 +216,7 @@
     <div class="card">
       <h2>✅ ${what}이 접수되었습니다</h2>
       <p>신청팀: <b>${esc(team)}</b></p>
-      <p class="muted">'신청 결과 조회'에서 팀명으로 승인/반려 여부를 확인할 수 있습니다.</p>
+      <p class="muted">'신청 결과 조회'에서 팀명으로 처리 상태를 확인할 수 있습니다.</p>
       <a class="btn" href="#/status?team=${encodeURIComponent(team)}">결과 조회하기</a>
     </div>`;
 
@@ -285,7 +285,7 @@
     const team0 = q.get("team") || ls.get(LAST_TEAM) || "";
     view.innerHTML = `
       <h1>신청 결과 조회</h1>
-      <p class="lead">신청할 때 적은 팀명(동아리명)으로 실험실 사용·물품 구입 신청의 승인/반려 여부를 확인합니다. 띄어쓰기는 무시됩니다.</p>
+      <p class="lead">신청할 때 적은 팀명(동아리명)으로 실험실 사용 신청의 승인/반려와 물품 구입 진행 상황(준비중·배송완료·인계완료 등)을 확인합니다. 띄어쓰기는 무시됩니다.</p>
       <form class="card actions" id="stForm">
         <input name="team" placeholder="팀명 또는 동아리명" value="${esc(team0)}" style="flex:1;min-width:200px" required>
         <button class="btn">조회</button>
@@ -299,7 +299,7 @@
           ${list.map((r) => `
             <div class="notice"><div style="flex:1">
               <b>${r.kind === "lab" ? `🧪 실험실 사용 · ${esc(r.lab)}` : "🛒 물품 구입"}</b>
-              <span class="badge ${r.status}">${REQ_STATUS[r.status]}</span><br>
+              <span class="badge ${r.status}">${esc(S.reqStatusOf(r.status))}</span><br>
               <span class="muted">${r.kind === "lab" ? `${esc(r.date)} ${esc(r.start)}~${esc(r.end)}` : `품목 ${r.itemCount}개 · 합계 ${Forms.won(r.total) || 0}원${r.useDate ? ` · 사용예정일 ${esc(r.useDate)}` : ""}`}
                 · 신청일 ${new Date(r.createdAt).toLocaleDateString("ko-KR")}</span>
               ${r.adminNote ? `<div><b>실무사 메모:</b> ${esc(r.adminNote)}</div>` : ""}
@@ -404,22 +404,25 @@
   }
 
   // 반려된 신청 삭제 (하나씩 / 모두). 학생의 '신청 결과 조회'에서도 사라짐
-  const delBtn = (r) => (r.status === "rejected" ? `<button class="btn ghost sm del-t" data-delrej="${esc(r.id)}">삭제</button>` : "");
+  // 삭제 가능: 반려(실험실) · 구매취소(물품)
+  const deletable = (r) => r.status === "rejected" || r.status === "canceled";
+  const delBtn = (r) => (deletable(r) ? `<button class="btn ghost sm del-t" data-delrej="${esc(r.id)}">삭제</button>` : "");
   const delAllBtn = (list) => {
-    const n = list.filter((r) => r.status === "rejected").length;
-    return n ? `<div class="actions" style="margin:0 0 10px"><button class="btn ghost sm del-t" data-delrej-all>반려된 신청 ${n}건 모두 삭제</button></div>` : "";
+    const n = list.filter(deletable).length;
+    const what = list.some((r) => r.status === "canceled") ? "반려·구매취소된" : "반려된";
+    return n ? `<div class="actions" style="margin:0 0 10px"><button class="btn ghost sm del-t" data-delrej-all>${what} 신청 ${n}건 모두 삭제</button></div>` : "";
   };
   function bindDeleteRejected(body, kind, list, rerender) {
     const warn = "\n\n삭제하면 되돌릴 수 없고, 학생의 '신청 결과 조회'에서도 사라집니다.";
     body.querySelectorAll("[data-delrej]").forEach((b) => (b.onclick = () => {
       const r = list.find((x) => x.id === b.dataset.delrej);
-      if (!confirm(`반려된 신청 [${r.team || "팀명 없음"}]을(를) 삭제할까요?${warn}`)) return;
+      if (!confirm(`${S.reqStatusOf(r.status)}된 신청 [${r.team || "팀명 없음"}]을(를) 삭제할까요?${warn}`)) return;
       busy(b, async () => { await Store.deleteRequests(kind, [r.id]); rerender(); });
     }));
     const all = body.querySelector("[data-delrej-all]");
     if (all) all.onclick = () => {
-      const ids = list.filter((r) => r.status === "rejected").map((r) => r.id);
-      if (!confirm(`반려된 신청 ${ids.length}건을 모두 삭제할까요?${warn}`)) return;
+      const ids = list.filter(deletable).map((r) => r.id);
+      if (!confirm(`${all.textContent.replace(/ 모두 삭제$/, "")}을 모두 삭제할까요?${warn}`)) return;
       busy(all, async () => { await Store.deleteRequests(kind, ids); rerender(); });
     };
   }
@@ -502,20 +505,24 @@
               <td>${esc(p.sid)} ${esc(p.name)}<br><span class="muted small">지도교사 ${esc(p.teacher)}</span></td>
               <td>${Forms.filledItems(p).length}개</td>
               <td>${Forms.won(itemsTotal(p))}원</td>
-              <td><span class="badge ${p.status}">${REQ_STATUS[p.status]}</span></td>
+              <td><span class="badge ${p.status}">${esc(S.reqStatusOf(p.status))}</span></td>
               <td class="actions"><button class="btn ghost sm" data-detail="${esc(p.id)}">상세</button></td>
             </tr>
             <tr class="detail" id="d-${esc(p.id)}" hidden><td colspan="8">
               <p style="margin:0 0 6px"><b>실험 목적 및 내용:</b> ${esc(p.purpose)} · 사용예정일 ${esc(p.useDate || "-")}</p>
-              <table class="mini"><tr><th>내용</th><th>규격</th><th>수량</th><th>예상단가</th><th>예상금액</th><th>사이트</th><th>상품코드</th></tr>
+              <table class="mini"><tr><th>내용</th><th>규격</th><th>수량</th><th>예상단가</th><th>예상금액</th><th>사이트</th><th>상품코드</th><th>주소</th></tr>
                 ${Forms.filledItems(p).map((it) => `<tr><td>${esc(it.name)}</td><td>${esc(it.spec)}</td><td>${esc(it.qty)}</td>
-                  <td>${Forms.won(it.price)}</td><td>${Forms.won((+it.qty || 0) * (+it.price || 0))}</td><td>${esc(it.site)}</td><td>${esc(it.code)}</td></tr>`).join("")}
+                  <td>${Forms.won(it.price)}</td><td>${Forms.won((+it.qty || 0) * (+it.price || 0))}</td><td>${esc(it.site)}</td><td>${esc(it.code)}</td>
+                  <td>${/^https?:\/\//i.test(it.url || "") ? `<a href="${esc(it.url)}" target="_blank" rel="noopener noreferrer">열기 ↗</a>` : esc(it.url || "")}</td></tr>`).join("")}
               </table>
               <div style="margin-top:8px">${signCheck(p)}</div>
               <div class="actions" style="margin-top:8px">
-                <input placeholder="학생에게 보낼 메모" data-note="${esc(p.id)}" value="${esc(p.adminNote)}" style="flex:1;min-width:200px">
-                <button class="btn ok sm" data-act="approved" data-id="${esc(p.id)}" ${approveLock(p)}>승인</button>
-                <button class="btn bad sm" data-act="rejected" data-id="${esc(p.id)}">반려</button>
+                <input placeholder="학생에게 보낼 메모 (배송 예정일, 보류 사유 등)" data-note="${esc(p.id)}" value="${esc(p.adminNote)}" style="flex:1;min-width:200px">
+                <select data-pstatus="${esc(p.id)}">
+                  ${p.status in S.purchaseStatus ? "" : `<option value="" selected disabled>${esc(S.reqStatusOf(p.status))} → 상태 선택</option>`}
+                  ${Object.entries(S.purchaseStatus).map(([k, v]) => `<option value="${k}" ${k === p.status ? "selected" : ""}>${v}</option>`).join("")}
+                </select>
+                <button class="btn ok sm" data-pset="${esc(p.id)}">상태 저장</button>
                 <button class="btn ghost sm" data-pdf="${esc(p.id)}">신청서 PDF</button>
                 <button class="btn ghost sm" data-xls="${esc(p.id)}">이 팀만 엑셀</button>
                 ${delBtn(p)}
@@ -530,11 +537,15 @@
       busy(e.target, () => Forms.purchasesToXlsx(s, `물품신청내역_${today()}.xlsx`));
     };
     body.querySelectorAll("[data-detail]").forEach((b) => (b.onclick = () => { const r = $(`#d-${CSS.escape(b.dataset.detail)}`); r.hidden = !r.hidden; }));
-    body.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
-      const note = body.querySelector(`[data-note="${CSS.escape(b.dataset.id)}"]`).value;
-      if (b.dataset.act === "rejected" && !note && !confirm("반려 사유 없이 반려할까요?")) return;
-      await Store.decidePurchase(b.dataset.id, b.dataset.act, note);
-      adminPurchases();
+    // 상태 저장: 준비중·추후예정·배송완료·인계완료는 지도교사 확인 체크가 있어야 함
+    body.querySelectorAll("[data-pset]").forEach((b) => (b.onclick = () => {
+      const id = b.dataset.pset, p = byId[id];
+      const st = body.querySelector(`[data-pstatus="${CSS.escape(id)}"]`).value;
+      const note = body.querySelector(`[data-note="${CSS.escape(id)}"]`).value;
+      if (!st) return alert("바꿀 상태를 고르세요.");
+      if (!["hold", "canceled"].includes(st) && !p.teacherChecked) return alert("'지도교사 확인함'을 먼저 체크하세요.\n(보류·구매취소는 체크 없이도 됩니다)");
+      if (st === "canceled" && !note && !confirm("취소 사유 메모 없이 구매취소할까요?")) return;
+      busy(b, async () => { await Store.decidePurchase(id, st, note); adminPurchases(); });
     }));
     bindTeacherCheck(body, "purchase", byId);
     bindDeleteRejected(body, "purchase", list, adminPurchases);

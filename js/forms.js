@@ -147,7 +147,8 @@
         <td>${I(d, k("qty"), 'type="number" min="0" class="r"')}</td>
         <td>${I(d, k("price"), 'type="number" min="0" class="r"')}</td>
         <td class="r amt" data-amt="${i}">${won((+it.qty || 0) * (+it.price || 0))}</td>
-        <td>${I(d, k("site"))}</td><td>${I(d, k("code"))}</td></tr>`;
+        <td>${I(d, k("site"))}</td><td>${I(d, k("code"))}</td>
+        <td class="url">${I(d, k("url"), 'type="url" class="url" placeholder="https://"')}</td></tr>`;
     }).join("");
     return `
     <div class="a4 purchase">
@@ -161,8 +162,8 @@
             <td class="nw"><b>지도교사 :</b> ${I(d, "teacher", 'class="w-teacher"')} <span class="in2">${SIG(d, "sign.teacher", "<b>(인)</b>", "지도교사")}</span></td></tr>
       </table>
       <table class="f thick items">
-        <colgroup><col style="width:22%"><col style="width:17%"><col style="width:7.5%"><col style="width:12.5%"><col style="width:12.5%"><col style="width:10.5%"><col style="width:18%"></colgroup>
-        <tr class="hd"><th>내용</th><th>규격</th><th>수량</th><th>예상단가</th><th>예상금액</th><th>사이트</th><th>상품코드번호</th></tr>
+        <colgroup><col style="width:18%"><col style="width:13%"><col style="width:6%"><col style="width:10%"><col style="width:10.5%"><col style="width:9%"><col style="width:14.5%"><col style="width:19%"></colgroup>
+        <tr class="hd"><th>내용</th><th>규격</th><th>수량</th><th>예상단가</th><th>예상금액</th><th>사이트</th><th>상품코드번호</th><th>사이트 주소</th></tr>
         ${rows}
       </table>
     </div>`;
@@ -350,9 +351,10 @@
   }
   function addPurchaseSheet(wb, list, name) {
     const ws = wb.addWorksheet(name);
-    const widths = [34, 20, 7.5, 7.5, 11, 11, 10, 16];
+    // 학교 양식(A~H) 오른쪽에 사이트 주소(I) 추가
+    const widths = [34, 20, 7.5, 7.5, 11, 11, 10, 16, 40];
     ws.columns = widths.map((w) => ({ width: w }));
-    const head = ["내용", "규격", "단위", "수량", "예상단가", "예상금액", "구입처", "신청팀"];
+    const head = ["내용", "규격", "단위", "수량", "예상단가", "예상금액", "구입처", "신청팀", "사이트 주소"];
     ws.addRow(head);
     let row = 2;
     for (const p of list) {
@@ -363,7 +365,8 @@
       const sites = items.map((it) => (lastSite = it.site || lastSite)); // 빈칸(배송비 등)은 위 구입처를 이어받음
       items.forEach((it, i) => {
         const qty = +it.qty || 0, price = +it.price || 0;
-        ws.addRow([it.name, it.spec || "", it.unit || "개", qty, price, { formula: `D${row}*E${row}`, result: qty * price }, i === 0 || sites[i] !== sites[i - 1] ? sites[i] : null, i === 0 ? (p.team || p.name || "") : null]);
+        ws.addRow([it.name, it.spec || "", it.unit || "개", qty, price, { formula: `D${row}*E${row}`, result: qty * price }, i === 0 || sites[i] !== sites[i - 1] ? sites[i] : null, i === 0 ? (p.team || p.name || "") : null,
+          /^https?:\/\//i.test(it.url || "") ? { text: it.url, hyperlink: it.url } : (it.url || "")]);
         row++;
       });
       let s = start;
@@ -373,15 +376,15 @@
       if (row - 1 > start) ws.mergeCells(start, 8, row - 1, 8);
     }
     const total = list.reduce((a, p) => a + filledItems(p).reduce((b, it) => b + (+it.qty || 0) * (+it.price || 0), 0), 0);
-    ws.addRow(["", "", "", "", "", { formula: row > 2 ? `SUM(F2:F${row - 1})` : "0", result: total }, "", ""]);
+    ws.addRow(["", "", "", "", "", { formula: row > 2 ? `SUM(F2:F${row - 1})` : "0", result: total }, "", "", ""]);
     const thin = { style: "thin" };
     ws.eachRow((r, n) => {
       r.height = 20;
       r.eachCell({ includeEmpty: true }, (c, col) => {
-        if (col > 8) return;
+        if (col > 9) return;
         c.border = { top: thin, left: thin, bottom: thin, right: thin };
-        c.font = { name: "맑은 고딕", size: 10, bold: n === 1 };
-        c.alignment = { vertical: "middle", horizontal: n === 1 || col >= 7 || col === 3 || col === 4 ? "center" : col >= 5 ? "right" : "left", wrapText: true };
+        c.font = { name: "맑은 고딕", size: 10, bold: n === 1, ...(col === 9 && n > 1 && c.value && c.value.hyperlink ? { color: { argb: "FF0563C1" }, underline: true } : {}) };
+        c.alignment = { vertical: "middle", horizontal: n === 1 || col === 7 || col === 8 || col === 3 || col === 4 ? "center" : col === 5 || col === 6 ? "right" : "left", wrapText: col !== 9 };
         if (col === 5 || col === 6) c.numFmt = "#,##0";
         if (n === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9D9D9" } };
       });
@@ -403,7 +406,7 @@
     }));
     ws.views = [{ state: "frozen", ySplit: 1 }];
   }
-  const ST = { pending: "검토 중", approved: "승인", rejected: "반려" };
+  const ST = new Proxy({}, { get: (_, k) => S.reqStatusOf(k) });
   const day = (ms) => (ms ? new Date(ms).toLocaleDateString("ko-KR") : "");
   const lines = (arr) => arr.filter(Boolean).join("\n");
 

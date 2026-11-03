@@ -20,6 +20,15 @@ window.SITE = {
     lab:   { label: "실험실 사용", color: "#2563eb" },
     event: { label: "과학행사",   color: "#059669" }
   },
+  // 물품 구입 진행 상태 (검토 중 다음에 관리자가 골라서 바꿈)
+  purchaseStatus: {
+    preparing: "준비중",
+    later: "추후예정",
+    delivered: "배송완료",
+    hold: "보류",
+    canceled: "구매취소",
+    handed: "인계완료"
+  },
   eventStatus: {
     scheduled: "예정",
     done: "완료",
@@ -28,4 +37,6 @@ window.SITE = {
 };
 // 예전 데이터 호환: 종류 '천체관측'(astro)은 과학행사로, 상태 '시행 확정'(confirmed)은 예정으로 표시
 window.SITE.typeOf = (e) => window.SITE.eventTypes[e.type] || window.SITE.eventTypes.event;
-window.SITE.statusOf = (s) => window.SITE.eventStatus[s] || (s === "confirmed" ? "예정" : "");
+// 신청 상태 이름 (실험실: 검토 중/승인/반려, 물품: 검토 중 + 위 6가지. 예전 물품 승인/반려 기록도 표시)
+window.SITE.reqStatusOf = (s) => ({ pending: "검토 중", approved: "승인", rejected: "반려", ...window.SITE.purchaseStatus })[s] || s;
+window.SITE.statusOf =(s) => window.SITE.eventStatus[s] || (s === "confirmed" ? "예정" : "");

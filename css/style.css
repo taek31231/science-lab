@@ -89,6 +89,13 @@ textarea { min-height: 80px; resize: vertical; }
 .badge.rejected, .badge.cancelled { background: #fee2e2; color: #991b1b; }
 .badge.scheduled, .badge.confirmed { background: #ede9fe; color: #5b21b6; }
 .badge.done { background: #e5e7eb; color: #374151; }
+/* 물품 구입 진행 상태 */
+.badge.preparing { background: #dbeafe; color: #1e40af; }
+.badge.later { background: #ede9fe; color: #5b21b6; }
+.badge.delivered { background: #ccfbf1; color: #115e59; }
+.badge.hold { background: #fef3c7; color: #92400e; }
+.badge.canceled { background: #fee2e2; color: #991b1b; }
+.badge.handed { background: #d1fae5; color: #065f46; }
 
 /* 표 */
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -174,6 +181,8 @@ table.mini th, table.mini td { padding: 5px 6px; border: 1px solid var(--line); 
 .a4.purchase table.items { margin-top: 7mm; }
 .a4.purchase table.items td { height: 9.2mm; padding: .6mm 1mm; }
 .a4.purchase table.items tr.hd th { background: #d9d9d9; height: 9mm; }
+.a4.purchase table.items input.url { font-size: 8pt; }
+.a4.frozen.purchase table.items td.url .fv { display: block; font-size: 6.5pt; line-height: 1.2; max-height: 8mm; overflow: hidden; word-break: break-all; }
 .a4.purchase table.f td.top { vertical-align: top; }
 .a4.purchase .pair { display: flex; align-items: center; gap: 4px; margin-top: 2mm; }
 .a4.purchase .pair input { flex: 1; }
