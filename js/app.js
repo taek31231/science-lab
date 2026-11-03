@@ -12,10 +12,15 @@
   const addDays = (ds, n) => { const d = new Date(ds + "T00:00"); d.setDate(d.getDate() + n); return window.localDate(d); };
 
   const REQ_STATUS = { pending: "검토 중", approved: "승인", rejected: "반려" };
+  // 시각 없는 날짜(YYYY-MM-DD)는 종일 일정
+  const allDay = (iso) => !!iso && !iso.includes("T");
   const fmtDate = (iso) => {
-    const d = new Date(iso); if (isNaN(d)) return iso;
-    return `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]}) ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const d = new Date(allDay(iso) ? iso + "T00:00" : iso); if (isNaN(d)) return iso;
+    const day = `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]})`;
+    return allDay(iso) ? `${day} 종일` : `${day} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   };
+  // 일정이 끝나는 시각 (종일 일정은 그날 23:59)
+  const endTime = (e) => { const x = e.end || e.start; return new Date(allDay(x) ? x + "T23:59" : x).getTime(); };
   const today = () => window.localDate();
   const ls = {
     get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -50,7 +55,7 @@
     const events = await Store.listEvents({ from: today(), to: addDays(today(), 22) });
     const now = Date.now();
     const upcoming = events
-      .filter((e) => e.type !== "lab" && new Date(e.end || e.start).getTime() >= now)
+      .filter((e) => e.type !== "lab" && endTime(e) >= now)
       .sort((a, b) => a.start.localeCompare(b.start));
     view.innerHTML = `
       <div class="hero"><img src="img/logo.png" alt=""><div><h1>${esc(S.schoolName)} ${esc(S.deptName)}</h1>
@@ -95,7 +100,7 @@
       events(info, ok, fail) {
         Store.listEvents({ from: info.startStr.slice(0, 10), to: info.endStr.slice(0, 10) })
           .then((list) => ok(list.map((e) => ({
-            id: e.id, title: e.title, start: e.start, end: e.end,
+            id: e.id, title: e.title, start: e.start, end: allDay(e.start) ? undefined : e.end, allDay: allDay(e.start),
             color: e.status === "cancelled" ? "#9ca3af" : S.typeOf(e).color,
             classNames: [e.status], extendedProps: e
           }))))
@@ -108,7 +113,7 @@
             <h2>${esc(e.title)}</h2>
             <p><span class="badge ${e.status}">${esc(S.statusOf(e.status))}</span>
               <span class="muted">${esc(S.typeOf(e).label)}</span></p>
-            <p>${fmtDate(e.start)} ~ ${e.end ? fmtDate(e.end).split(" ").pop() : ""}</p>
+            <p>${fmtDate(e.start)}${!allDay(e.start) && e.end ? " ~ " + fmtDate(e.end).split(" ").pop() : ""}</p>
             ${e.note ? `<p>${esc(e.note)}</p>` : ""}
           </div>`;
         $("#evDetail").scrollIntoView({ behavior: "smooth" });
@@ -602,10 +607,12 @@
       let en = Forms.toTimeStr(end);
       if (!e.title) x.msg = "제목이 비어 있음";
       else if (!d) x.msg = "날짜 형식 (예: 2026-11-20)";
-      else if (!s) x.msg = "시작 시각 형식 (예: 19:30)";
+      else if (T(start) && !s) x.msg = "시작 시각 형식 (예: 19:30)";
       else if (T(end) && !en) x.msg = "종료 시각 형식 (예: 21:30)";
+      else if (!s && en) x.msg = "종료 시각만 있음 (시작 시각도 적거나 둘 다 비우기)";
       else if (!e.status) x.msg = "상태는 예정 / 완료 / 취소";
       if (x.msg) return x;
+      if (!s) { x.cells[2] = "종일"; x.item = { ...e, start: d, end: "" }; return x; } // 시각 없으면 종일 일정
       if (!en) { const m = Math.min(+s.slice(0, 2) * 60 + +s.slice(3) + 120, 23 * 60 + 59); en = `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; x.cells[3] = en; }
       if (en <= s) { x.msg = "종료 시각이 시작보다 빠름"; return x; }
       x.item = { ...e, start: `${d}T${s}`, end: `${d}T${en}` };
@@ -671,8 +678,8 @@
         </div>
         <div class="row">
           <label>날짜<input type="date" name="date" required></label>
-          <label>시작<input type="time" name="start" required value="19:30"></label>
-          <label>종료<input type="time" name="end" required value="21:30"></label>
+          <label>시작 (비우면 종일)<input type="time" name="start"></label>
+          <label>종료<input type="time" name="end"></label>
         </div>
         <div class="row"><label>안내 문구<input name="note" placeholder="예) 우천 시 취소, 전날 17시 공지"></label></div>
         <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="evReset">새로 작성</button></div>
@@ -690,8 +697,10 @@
     f.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const d = Object.fromEntries(new FormData(f));
+      if (!d.start && d.end) return alert("시작 시각을 적거나, 종일 일정이면 종료 시각도 비워 주세요.");
+      if (d.start && d.end && d.end <= d.start) return alert("종료 시각이 시작 시각보다 늦어야 합니다.");
       await Store.saveEvent({ id: d.id || undefined, type: "event", title: d.title, status: d.status, note: d.note,
-        start: `${d.date}T${d.start}`, end: `${d.date}T${d.end}` });
+        start: d.start ? `${d.date}T${d.start}` : d.date, end: d.start && d.end ? `${d.date}T${d.end}` : "" });
       adminEvents();
     });
     $("#evReset").onclick = () => adminEvents();
