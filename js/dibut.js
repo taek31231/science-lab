@@ -49,10 +49,6 @@
           pw1: { id: "pw1", kind: "pw", sid: "10101", title: "구글 계정 비밀번호 재설정", status: "pending", note: "", createdAt: Date.now() - 3600e3 },
           a1: { id: "a1", kind: "app", sid: "10102", title: "패들렛", status: "pending", note: "", createdAt: Date.now() - 7200e3 },
           a2: { id: "a2", kind: "app", sid: "10201", title: "Padlet", status: "pending", note: "", createdAt: Date.now() - 5000e3 }
-        },
-        allowed: {
-          w1: { id: "w1", kind: "app", title: "클래스카드", url: "", note: "영어 단어 학습", addedAt: Date.now() - 864e5 * 30 },
-          w2: { id: "w2", kind: "site", title: "구글 클래스룸", url: "https://classroom.google.com", note: "", addedAt: Date.now() - 864e5 * 60 }
         }
       };
     }
@@ -91,10 +87,7 @@
         for (const id of ids) { delete col[id]; delete d.status[id]; }
         save(d);
       },
-      async statusBySid(sid) { return Object.values(load().status).filter((s) => s.sid === sid).sort(byNew); },
-      async listAllowed() { return Object.values(load().allowed).sort((a, b) => a.title.localeCompare(b.title, "ko")); },
-      async saveAllowed(a) { const d = load(); const id = a.id || uid(); d.allowed[id] = { addedAt: Date.now(), ...a, id }; save(d); },
-      async deleteAllowed(id) { const d = load(); delete d.allowed[id]; save(d); }
+      async statusBySid(sid) { return Object.values(load().status).filter((s) => s.sid === sid).sort(byNew); }
     };
   }
 
@@ -142,14 +135,7 @@
         const col = kind === "pw" ? "pwRequests" : "appRequests";
         await chunked(ids, (b, id) => { b.delete(db.collection(col).doc(id)); b.delete(db.collection("dibutStatus").doc(id)); });
       },
-      async statusBySid(sid) { return rows(await db.collection("dibutStatus").where("sid", "==", sid).get()).sort(byNew); },
-      async listAllowed() { return rows(await db.collection("allowedApps").get()).sort((a, b) => a.title.localeCompare(b.title, "ko")); },
-      async saveAllowed(a) {
-        const { id, ...v } = a;
-        if (id) await db.collection("allowedApps").doc(id).set(v, { merge: true });
-        else await db.collection("allowedApps").add({ ...v, addedAt: FV.serverTimestamp() });
-      },
-      async deleteAllowed(id) { await db.collection("allowedApps").doc(id).delete(); }
+      async statusBySid(sid) { return rows(await db.collection("dibutStatus").where("sid", "==", sid).get()).sort(byNew); }
     };
   }
 
@@ -191,12 +177,7 @@
     view.innerHTML = `
       <h1>디벗</h1>
       <p class="lead">디벗(학생 태블릿)에서 쓸 앱·사이트 허용 신청과 학교 구글 계정 비밀번호 재설정 신청을 받습니다. 처리 결과는 <a href="#/status">신청 결과 조회</a>에서 학번으로 확인하세요.</p>
-      <div class="card">
-        <h2>✅ 지금 허용된 앱·사이트</h2>
-        <p class="muted small">신청하기 전에 여기서 먼저 찾아보세요. 목록에 있는데 안 되면 디벗을 와이파이에 연결하고 잠시 기다려 보세요.</p>
-        <input id="alSearch" placeholder="앱·사이트 이름 검색" style="max-width:320px">
-        <div id="alList" style="margin-top:10px"><p class="muted">불러오는 중…</p></div>
-      </div>
+      <p class="muted small">앱은 신청하기 전에 디벗의 Play 스토어에서 이미 보이는지 먼저 확인해 주세요.</p>
       <div class="grid2">
         <form class="card" id="appForm">
           <h2>📱 앱·사이트 허용 신청</h2>
@@ -218,16 +199,6 @@
           <p class="muted small" style="margin:8px 0 0">임시 비밀번호로 로그인하면 새 비밀번호를 정하라는 화면이 나옵니다. 새 비밀번호는 다른 사람에게 알려주지 마세요.</p>
         </form>
       </div>`;
-    const allowed = await store().listAllowed().catch(() => []);
-    const drawAllowed = () => {
-      const q = keyOf($("#alSearch").value);
-      const list = allowed.filter((a) => !q || keyOf(a.title).includes(q));
-      $("#alList").innerHTML = list.length ? `<div class="chips">${list.map((a) => `<span class="chip ${a.kind}">${a.kind === "app" ? "📱" : "🌐"} ${esc(a.title)}${a.note ? ` <span class="muted small">· ${esc(a.note)}</span>` : ""}</span>`).join("")}</div>`
-        : `<p class="muted">${allowed.length ? "검색 결과가 없습니다." : "아직 등록된 목록이 없습니다."}</p>`;
-    };
-    drawAllowed();
-    $("#alSearch").oninput = drawAllowed;
-
     const checkSid = (f) => {
       const p = window.parseSid(f.elements.sid.value.trim());
       if (!p) { alert("학번은 5자리로 입력하세요 (예: 20315)."); return null; }
@@ -238,8 +209,6 @@
       const f = e.target, sid = checkSid(f); if (!sid) return;
       const d = Object.fromEntries(new FormData(f));
       const title = d.title.trim(), key = keyOf(title);
-      const hit = allowed.find((a) => keyOf(a.title) === key);
-      if (hit) return alert(`'${hit.title}'은(는) 이미 허용되어 있습니다.`);
       const btn = f.querySelector("button");
       busy(btn, async () => {
         const mine = await store().statusBySid(sid);
@@ -693,13 +662,13 @@
 
   // ---------------- 앱·사이트 신청 ----------------
   async function adminApps(el) {
-    const [reqs, allowed] = await Promise.all([store().listApps(), store().listAllowed()]);
+    const reqs = await store().listApps();
     const pending = reqs.filter((r) => r.status === "pending"), done = reqs.filter((r) => r.status !== "pending");
     const groups = {};
     pending.forEach((r) => (groups[r.kind + ":" + (r.key || keyOf(r.title))] ||= []).push(r));
     const gl = Object.values(groups).sort((a, b) => b.length - a.length);
     el.innerHTML = `
-      <div class="card help small">같은 앱·사이트 신청은 한 줄로 묶어 보여 줍니다. AMA(앱 화이트리스트)나 구글 관리 콘솔(사이트·서드파티 앱 승인)에서 허용한 뒤 <b>[허용 완료]</b>를 누르면, 신청한 학생 모두에게 결과가 표시되고 '허용된 목록'에 추가됩니다.</div>
+      <div class="card help small">같은 앱·사이트 신청은 한 줄로 묶어 보여 줍니다. AMA(앱 화이트리스트)나 구글 관리 콘솔(사이트·서드파티 앱 승인)에서 허용한 뒤 <b>[허용 완료]</b>를 누르면, 신청한 학생 모두에게 결과가 표시됩니다.</div>
       <h2>대기 중 (${pending.length}건 · ${gl.length}종)</h2>
       ${gl.map((g, i) => {
         const r0 = g[0], urls = [...new Set(g.map((r) => r.url).filter(Boolean))], titles = [...new Set(g.map((r) => r.title))];
@@ -710,56 +679,23 @@
           <div class="actions"><button class="btn ok sm" data-ok="${i}">허용 완료</button><button class="btn bad sm" data-no="${i}">불가</button></div>
         </div>`;
       }).join("") || '<p class="muted">대기 중인 신청이 없습니다.</p>'}
-      <div class="card">
-        <div class="actions" style="justify-content:space-between"><h2 style="margin:0">허용된 목록 (${allowed.length}) <span class="muted small">학생 화면에 공개</span></h2>
-          <button class="btn sm" id="alAdd">＋ 직접 추가</button></div>
-        <div class="table-wrap" style="margin-top:10px"><table class="mini"><tr><th>종류</th><th>이름</th><th>링크</th><th>메모</th><th></th></tr>
-          ${allowed.map((a) => `<tr><td>${a.kind === "app" ? "📱 앱" : "🌐 사이트"}</td><td><b>${esc(a.title)}</b></td><td class="small">${esc(a.url || "")}</td><td class="small">${esc(a.note || "")}</td>
-            <td class="actions nowrap"><button class="btn ghost sm" data-aled="${esc(a.id)}">수정</button><button class="btn ghost sm del-t" data-aldel="${esc(a.id)}">삭제</button></td></tr>`).join("")
-            || '<tr><td colspan="5" class="muted">아직 없습니다. 지금 AMA·구글에서 허용해 둔 앱과 사이트를 추가해 두면 학생들이 먼저 확인할 수 있습니다.</td></tr>'}
-        </table></div>
-      </div>
       <details><summary class="muted" style="cursor:pointer;margin:16px 0">처리된 신청 ${done.length}건 보기</summary>
         ${done.length ? `<div class="actions" style="margin-bottom:10px"><button class="btn ghost sm del-t" id="apClean">처리된 신청 모두 삭제</button></div>` : ""}
         <div class="table-wrap"><table class="mini"><tr><th>신청일</th><th>학번</th><th>이름</th><th>목적</th><th>결과</th><th>메모</th></tr>
         ${done.map((r) => `<tr><td>${day(r.createdAt)}</td><td>${esc(r.sid)}</td><td>${esc(r.title)}</td><td class="small">${esc(r.purpose)}</td><td>${REQ[r.status]}</td><td class="small">${esc(r.adminNote)}</td></tr>`).join("")}</table></div></details>`;
-    const allowedForm = (a = {}) => `
-      <div class="row"><label>종류<select name="kind"><option value="app" ${a.kind !== "site" ? "selected" : ""}>앱</option><option value="site" ${a.kind === "site" ? "selected" : ""}>사이트</option></select></label>
-        <label>이름<input name="title" required value="${esc(a.title || "")}"></label></div>
-      <div class="row"><label>링크 (선택)<input name="url" value="${esc(a.url || "")}"></label></div>
-      <div class="row"><label>메모 (학생에게 보임, 선택)<input name="note" value="${esc(a.note || "")}" placeholder="예) 영어과 수업용"></label></div>`;
     el.querySelectorAll("[data-ok]").forEach((b) => (b.onclick = async () => {
-      const g = gl[+b.dataset.ok], r0 = g[0];
-      const v = await dialog("허용 완료 처리", `${allowedForm({ kind: r0.kind, title: r0.title, url: g.map((r) => r.url).find(Boolean) || "" })}
-        <div class="row"><label>학생에게 보일 메모<input name="msg" value="${esc(APP_DONE_NOTE)}"></label></div>`, "허용 완료");
-      if (!v) return;
-      busy(b, async () => {
-        if (!allowed.some((a) => keyOf(a.title) === keyOf(v.title))) await store().saveAllowed({ kind: v.kind, title: v.title.trim(), url: v.url.trim(), note: v.note.trim() });
-        await store().decide("app", g.map((r) => r.id), "done", v.msg.trim());
-        adminApps(el);
-      });
+      const g = gl[+b.dataset.ok];
+      const v = await dialog(`${g[0].title} 허용 완료 (${g.length}명)`, `<label>학생에게 보일 메모<input name="msg" value="${esc(APP_DONE_NOTE)}"></label>`, "허용 완료");
+      if (v) busy(b, async () => { await store().decide("app", g.map((r) => r.id), "done", v.msg.trim()); adminApps(el); });
     }));
     el.querySelectorAll("[data-no]").forEach((b) => (b.onclick = async () => {
       const g = gl[+b.dataset.no];
       const v = await dialog(`${g[0].title} 불가 처리 (${g.length}명)`, `<label>학생에게 보일 사유<input name="note" required placeholder="예) 수업과 관련 없는 앱이라 허용할 수 없습니다."></label>`, "불가 처리");
       if (v) busy(b, async () => { await store().decide("app", g.map((r) => r.id), "rejected", v.note.trim()); adminApps(el); });
     }));
-    $("#alAdd", el).onclick = async () => {
-      const v = await dialog("허용된 앱·사이트 추가", allowedForm(), "추가");
-      if (v) { await store().saveAllowed({ kind: v.kind, title: v.title.trim(), url: v.url.trim(), note: v.note.trim() }); adminApps(el); }
-    };
-    el.querySelectorAll("[data-aled]").forEach((b) => (b.onclick = async () => {
-      const a = allowed.find((x) => x.id === b.dataset.aled);
-      const v = await dialog("허용 목록 수정", allowedForm(a), "저장");
-      if (v) { await store().saveAllowed({ id: a.id, kind: v.kind, title: v.title.trim(), url: v.url.trim(), note: v.note.trim() }); adminApps(el); }
-    }));
-    el.querySelectorAll("[data-aldel]").forEach((b) => (b.onclick = async () => {
-      const a = allowed.find((x) => x.id === b.dataset.aldel);
-      if (confirm(`'${a.title}'을(를) 허용 목록에서 지울까요? (AMA·구글 설정은 따로 바꿔야 합니다)`)) { await store().deleteAllowed(a.id); adminApps(el); }
-    }));
     const clean = $("#apClean", el);
     if (clean) clean.onclick = () => {
-      if (!confirm(`처리된 신청 ${done.length}건을 삭제할까요? (허용된 목록은 그대로 남습니다)`)) return;
+      if (!confirm(`처리된 신청 ${done.length}건을 삭제할까요? 학생 조회 화면에서도 사라집니다.`)) return;
       busy(clean, async () => { await store().remove("app", done.map((r) => r.id)); adminApps(el); });
     };
   }

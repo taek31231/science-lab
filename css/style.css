@@ -212,9 +212,6 @@ table.mini th, table.mini td { padding: 5px 6px; border: 1px solid var(--line); 
 /* 디벗 */
 .grid2 { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 16px; }
 .grid2 > .card { margin-bottom: 0; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { display: inline-block; padding: 4px 10px; border-radius: 999px; background: #eef2ff; border: 1px solid #c7d2fe; font-size: 13px; }
-.chip.site { background: #ecfdf5; border-color: #a7f3d0; }
 .stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 16px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
 .stat span { color: var(--muted); font-size: 13px; font-weight: 600; }
