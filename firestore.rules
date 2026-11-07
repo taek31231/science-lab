@@ -73,5 +73,60 @@ service cloud.firestore {
       allow get: if true;
       allow list, write: if isAdmin();
     }
+
+    // ===== 디벗 =====
+    // 기기대장 (학생 이름·시리얼·계정): 관리자만
+    match /devices/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    function sidOk(d) {
+      return d.sid is string && d.sid.matches('^[1-3][0-9]{4}$');
+    }
+
+    // 구글 비밀번호 재설정 요청: 누구나 '검토 중'으로만 신청, 읽기·처리는 관리자만 (비밀번호는 저장하지 않음)
+    match /pwRequests/{id} {
+      allow read, update, delete: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['sid','name','reason','status','adminNote','createdAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.adminNote == ''
+        && sidOk(request.resource.data)
+        && request.resource.data.name is string && request.resource.data.name.size() < 20
+        && request.resource.data.reason is string && request.resource.data.reason.size() < 200;
+    }
+
+    // 앱·사이트 허용 신청
+    match /appRequests/{id} {
+      allow read, update, delete: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['sid','kind','title','url','purpose','key','status','adminNote','createdAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.adminNote == ''
+        && sidOk(request.resource.data)
+        && request.resource.data.kind in ['app','site']
+        && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 60
+        && request.resource.data.url is string && request.resource.data.url.size() <= 300
+        && request.resource.data.purpose is string && request.resource.data.purpose.size() <= 200
+        && request.resource.data.key is string && request.resource.data.key.size() <= 60;
+    }
+
+    // 디벗 신청 결과 요약 (학번·제목·상태·메모만, 이름 없음): 누구나 학번으로 조회
+    match /dibutStatus/{id} {
+      allow read: if true;
+      allow update, delete: if isAdmin();
+      allow create: if isAdmin() || (
+        request.resource.data.keys().hasOnly(['kind','sid','title','status','note','createdAt'])
+        && request.resource.data.status == 'pending'
+        && request.resource.data.note == ''
+        && sidOk(request.resource.data)
+        && request.resource.data.title is string && request.resource.data.title.size() <= 60
+        && ((request.resource.data.kind == 'pw' && existsAfter(/databases/$(database)/documents/pwRequests/$(id)))
+            || (request.resource.data.kind == 'app' && existsAfter(/databases/$(database)/documents/appRequests/$(id)))));
+    }
+
+    // 허용된 앱·사이트 목록: 누구나 보기, 관리자만 수정
+    match /allowedApps/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

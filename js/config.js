@@ -20,6 +20,13 @@ window.SITE = {
     lab:   { label: "실험실 사용", color: "#2563eb" },
     event: { label: "과학행사",   color: "#059669" }
   },
+  // 디벗(학생 태블릿) 업무: 기기대장 고정 칸과 구글 계정 도메인
+  dibut: {
+    ledger: { office: "서울시", region: "용산구", level: "고등학교", found: "공립", school: "용산고등학교", os: "ANDROID" },
+    domain: "yongsan.sen.hs.kr",
+    orgPath: "/학생/1학년",   // 신입생 구글 계정 조직 경로 (기본값)
+    model: "갤럭시탭 S9 FE+"
+  },
   // 물품 구입 진행 상태 (검토 중 다음에 관리자가 골라서 바꿈)
   purchaseStatus: {
     preparing: "준비중",

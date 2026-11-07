@@ -39,7 +39,7 @@
 
   // ---------- 라우터 ----------
   const routes = { "/": home, "/calendar": calendarView, "/apply": applyView, "/purchase": purchaseView,
-    "/status": statusView, "/hours": hoursView, "/admin": adminView };
+    "/status": statusView, "/hours": hoursView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q) };
 
   async function render() {
     const [path, qs] = (location.hash.slice(1) || "/").split("?");
@@ -290,7 +290,9 @@
         <input name="team" placeholder="팀명 또는 동아리명" value="${esc(team0)}" style="flex:1;min-width:200px" required>
         <button class="btn">조회</button>
       </form>
-      <div id="stResult"></div>`;
+      <div id="stResult"></div>
+      <div id="dibutStatusBox"></div>`;
+    window.Dibut.statusSection($("#dibutStatusBox"), q.get("sid") || "");
     const show = async (team) => {
       team = team.trim(); if (!team) return;
       const list = await Store.listStatusByTeam(team);
@@ -362,7 +364,7 @@
       });
       return;
     }
-    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리" };
+    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리", dibut: "디벗 관리" };
     const years = [0, 1, 2, 3, 4].map((i) => curYear() - i);
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
@@ -377,7 +379,7 @@
     $("#logout").onclick = () => Store.logout();
     $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
-    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup })[adminTab]();
+    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
   }
 
   // 서명 미리보기 + '지도교사 확인' 체크 (체크해야 승인 버튼이 눌림)

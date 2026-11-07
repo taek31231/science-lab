@@ -562,5 +562,6 @@
   }
 
   window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, backupXlsx, filledItems, fmt, won,
-    bulkTemplate, readBulkXlsx, cellText, toDateStr, toTimeStr };
+    bulkTemplate, readBulkXlsx, cellText, toDateStr, toTimeStr,
+    loadExcel: () => loadScript(LIB.exceljs), saveWorkbook };
 })();
