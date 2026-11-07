@@ -98,10 +98,11 @@ service cloud.firestore {
     // 앱·사이트 허용 신청
     match /appRequests/{id} {
       allow read, update, delete: if isAdmin();
-      allow create: if request.resource.data.keys().hasOnly(['sid','kind','title','url','purpose','key','status','adminNote','createdAt'])
+      allow create: if request.resource.data.keys().hasOnly(['sid','name','kind','title','url','purpose','key','status','adminNote','createdAt'])
         && request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && sidOk(request.resource.data)
+        && request.resource.data.name is string && request.resource.data.name.size() < 20
         && request.resource.data.kind in ['app','site']
         && request.resource.data.title is string && request.resource.data.title.size() > 0 && request.resource.data.title.size() <= 60
         && request.resource.data.url is string && request.resource.data.url.size() <= 300
@@ -109,24 +110,18 @@ service cloud.firestore {
         && request.resource.data.key is string && request.resource.data.key.size() <= 60;
     }
 
-    // 디벗 신청 결과 요약 (학번·제목·상태·메모만, 이름 없음): 누구나 학번으로 조회
+    // 디벗 신청 결과 요약 (제목·상태·메모 + 이름·PIN을 해시로 바꾼 조회 열쇠만, 이름·학번·PIN 없음)
     match /dibutStatus/{id} {
       allow read: if true;
       allow update, delete: if isAdmin();
       allow create: if isAdmin() || (
-        request.resource.data.keys().hasOnly(['kind','sid','title','status','note','createdAt'])
+        request.resource.data.keys().hasOnly(['kind','lookup','title','status','note','createdAt'])
         && request.resource.data.status == 'pending'
         && request.resource.data.note == ''
-        && sidOk(request.resource.data)
+        && request.resource.data.lookup is string && request.resource.data.lookup.matches('^[0-9a-f]{64}$')
         && request.resource.data.title is string && request.resource.data.title.size() <= 60
         && ((request.resource.data.kind == 'pw' && existsAfter(/databases/$(database)/documents/pwRequests/$(id)))
             || (request.resource.data.kind == 'app' && existsAfter(/databases/$(database)/documents/appRequests/$(id)))));
-    }
-
-    // 허용된 앱·사이트 목록: 누구나 보기, 관리자만 수정
-    match /allowedApps/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
     }
   }
 }

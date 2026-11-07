@@ -46,9 +46,9 @@
           a2: { id: "a2", sid: "10201", kind: "site", title: "Padlet", url: "", purpose: "과학 탐구 발표", key: keyOf("Padlet"), status: "pending", adminNote: "", createdAt: Date.now() - 5000e3 }
         },
         status: {
-          pw1: { id: "pw1", kind: "pw", sid: "10101", title: "구글 계정 비밀번호 재설정", status: "pending", note: "", createdAt: Date.now() - 3600e3 },
-          a1: { id: "a1", kind: "app", sid: "10102", title: "패들렛", status: "pending", note: "", createdAt: Date.now() - 7200e3 },
-          a2: { id: "a2", kind: "app", sid: "10201", title: "Padlet", status: "pending", note: "", createdAt: Date.now() - 5000e3 }
+          pw1: { id: "pw1", kind: "pw", lookup: "demo", title: "구글 계정 비밀번호 재설정", status: "pending", note: "", createdAt: Date.now() - 3600e3 },
+          a1: { id: "a1", kind: "app", lookup: "demo", title: "패들렛", status: "pending", note: "", createdAt: Date.now() - 7200e3 },
+          a2: { id: "a2", kind: "app", lookup: "demo", title: "Padlet", status: "pending", note: "", createdAt: Date.now() - 5000e3 }
         }
       };
     }
@@ -60,17 +60,17 @@
       async saveDevice(dev) { const d = load(); d.devices[dev.id] = dev; save(d); },
       async saveDevices(list) { const d = load(); list.forEach((x) => (d.devices[x.id] = x)); save(d); },
       async replaceDevices(list) { const d = load(); d.devices = Object.fromEntries(list.map((x) => [x.id, x])); save(d); },
-      async submitPw(r) {
+      async submitPw(r, lookup) {
         const d = load(); const id = uid();
         d.pw[id] = { ...r, id, status: "pending", adminNote: "", createdAt: Date.now() };
-        d.status[id] = { id, kind: "pw", sid: r.sid, title: "구글 계정 비밀번호 재설정", status: "pending", note: "", createdAt: Date.now() };
+        d.status[id] = { id, kind: "pw", lookup, title: "구글 계정 비밀번호 재설정", status: "pending", note: "", createdAt: Date.now() };
         save(d);
       },
       async listPw() { return Object.values(load().pw).sort(byNew); },
-      async submitApp(r) {
+      async submitApp(r, lookup) {
         const d = load(); const id = uid();
         d.apps[id] = { ...r, id, status: "pending", adminNote: "", createdAt: Date.now() };
-        d.status[id] = { id, kind: "app", sid: r.sid, title: r.title, status: "pending", note: "", createdAt: Date.now() };
+        d.status[id] = { id, kind: "app", lookup, title: r.title, status: "pending", note: "", createdAt: Date.now() };
         save(d);
       },
       async listApps() { return Object.values(load().apps).sort(byNew); },
@@ -87,7 +87,7 @@
         for (const id of ids) { delete col[id]; delete d.status[id]; }
         save(d);
       },
-      async statusBySid(sid) { return Object.values(load().status).filter((s) => s.sid === sid).sort(byNew); }
+      async statusByLookup(lookup) { return Object.values(load().status).filter((s) => s.lookup === lookup).sort(byNew); }
     };
   }
 
@@ -102,11 +102,11 @@
         const b = db.batch(); items.slice(i, i + 400).forEach((x) => fn(b, x)); await b.commit();
       }
     }
-    async function submit(col, data, title, kind) {
+    async function submit(col, data, title, kind, lookup) {
       const ref = db.collection(col).doc();
       const b = db.batch();
       b.set(ref, { ...data, status: "pending", adminNote: "", createdAt: FV.serverTimestamp() });
-      b.set(db.collection("dibutStatus").doc(ref.id), { kind, sid: data.sid, title, status: "pending", note: "", createdAt: FV.serverTimestamp() });
+      b.set(db.collection("dibutStatus").doc(ref.id), { kind, lookup, title, status: "pending", note: "", createdAt: FV.serverTimestamp() });
       await b.commit();
     }
     const clean = (o) => JSON.parse(JSON.stringify(o)); // Firestore는 undefined 값을 받지 않음
@@ -120,9 +120,9 @@
         await chunked(old.docs.filter((x) => !keep.has(x.id)), (b, x) => b.delete(x.ref));
         await chunked(list, (b, x) => { const { id, ...v } = x; b.set(db.collection("devices").doc(id), clean(v)); });
       },
-      submitPw: (r) => submit("pwRequests", r, "구글 계정 비밀번호 재설정", "pw"),
+      submitPw: (r, lookup) => submit("pwRequests", r, "구글 계정 비밀번호 재설정", "pw", lookup),
       async listPw() { return rows(await db.collection("pwRequests").get()).sort(byNew); },
-      submitApp: (r) => submit("appRequests", r, r.title, "app"),
+      submitApp: (r, lookup) => submit("appRequests", r, r.title, "app", lookup),
       async listApps() { return rows(await db.collection("appRequests").get()).sort(byNew); },
       async decide(kind, ids, status, note) {
         const col = kind === "pw" ? "pwRequests" : "appRequests";
@@ -135,7 +135,7 @@
         const col = kind === "pw" ? "pwRequests" : "appRequests";
         await chunked(ids, (b, id) => { b.delete(db.collection(col).doc(id)); b.delete(db.collection("dibutStatus").doc(id)); });
       },
-      async statusBySid(sid) { return rows(await db.collection("dibutStatus").where("sid", "==", sid).get()).sort(byNew); }
+      async statusByLookup(lookup) { return rows(await db.collection("dibutStatus").where("lookup", "==", lookup).get()).sort(byNew); }
     };
   }
 
@@ -170,19 +170,31 @@
     return [...r.slice(0, 4)].map((x) => L[x % L.length]).join("") + [...r.slice(4)].map((x) => N[x % N.length]).join("") + "!";
   }
 
+  // 조회 열쇠: 이름 + PIN 4자리를 해시로 바꾼 값만 저장 (PIN 자체는 저장하지 않음)
+  const pinOk = (p) => /^\d{4}$/.test(String(p || ""));
+  async function lookupKey(name, pin) {
+    const text = `yongsan-dibut|${String(name).replace(/\s/g, "")}|${pin}`;
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const pinFields = `
+    <div class="row"><label>이름<input name="name" maxlength="20" required autocomplete="off"></label>
+      <label>조회용 PIN (숫자 4자리)<input name="pin" type="password" inputmode="numeric" maxlength="4" pattern="\\d{4}" required autocomplete="off" placeholder="직접 정하기"></label></div>`;
+
   // =====================================================================
   //  학생 화면 (#/dibut)
   // =====================================================================
   async function studentView(view) {
     view.innerHTML = `
       <h1>디벗</h1>
-      <p class="lead">디벗(학생 태블릿)에서 쓸 앱·사이트 허용 신청과 학교 구글 계정 비밀번호 재설정 신청을 받습니다. 처리 결과는 <a href="#/status">신청 결과 조회</a>에서 학번으로 확인하세요.</p>
-      <p class="muted small">앱은 신청하기 전에 디벗의 Play 스토어에서 이미 보이는지 먼저 확인해 주세요.</p>
+      <p class="lead">디벗(학생 태블릿)에서 쓸 앱·사이트 허용 신청과 학교 구글 계정 비밀번호 재설정 신청을 받습니다. 신청할 때 <b>조회용 PIN 4자리</b>를 직접 정하고, 처리 결과는 <a href="#/status">신청 결과 조회</a>에서 <b>이름 + PIN</b>으로 확인하세요.</p>
+      <p class="muted small">PIN은 결과 확인용입니다. 구글 비밀번호나 디벗 잠금 비밀번호와 다른 숫자로 정하세요. 앱은 신청하기 전에 디벗의 Play 스토어에서 이미 보이는지 먼저 확인해 주세요.</p>
       <div class="grid2">
         <form class="card" id="appForm">
           <h2>📱 앱·사이트 허용 신청</h2>
           <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="예) 20315" required></label>
             <label>종류<select name="kind"><option value="app">앱 (Play 스토어)</option><option value="site">웹사이트 (예: 패들렛)</option></select></label></div>
+          ${pinFields}
           <div class="row"><label>앱·사이트 이름<input name="title" maxlength="60" required placeholder="예) 패들렛"></label></div>
           <div class="row"><label>링크 (선택)<input name="url" maxlength="300" placeholder="Play 스토어 주소나 사이트 주소"></label></div>
           <div class="row"><label>사용 목적 (과목·선생님)<input name="purpose" maxlength="200" required placeholder="예) 국어 수업 모둠 활동 (OOO 선생님)"></label></div>
@@ -192,72 +204,76 @@
         <form class="card" id="pwForm">
           <h2>🔑 구글 계정 비밀번호 재설정</h2>
           <p class="muted small" style="margin-top:0">학교 구글 계정 비밀번호를 잊었을 때 신청하세요. 처리되면 <b>임시 비밀번호가 본인 디벗으로 메시지(알림)로 전송</b>됩니다. 디벗을 켜 두고 학교 와이파이에 연결해 두세요.</p>
-          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="예) 20315" required></label>
-            <label>이름<input name="name" maxlength="20" required></label></div>
+          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="예) 20315" required></label></div>
+          ${pinFields}
           <div class="row"><label>메모 (선택)<input name="reason" maxlength="200" placeholder="예) 비밀번호를 잊어버렸어요"></label></div>
           <button class="btn">신청하기</button>
           <p class="muted small" style="margin:8px 0 0">임시 비밀번호로 로그인하면 새 비밀번호를 정하라는 화면이 나옵니다. 새 비밀번호는 다른 사람에게 알려주지 마세요.</p>
         </form>
       </div>`;
-    const checkSid = (f) => {
+    // 학번·이름·PIN 확인 → { sid, name, lookup }
+    const checkForm = async (f) => {
       const p = window.parseSid(f.elements.sid.value.trim());
       if (!p) { alert("학번은 5자리로 입력하세요 (예: 20315)."); return null; }
-      return p.sid;
+      const name = f.elements.name.value.replace(/\s/g, "");
+      if (!name) { alert("이름을 입력하세요."); return null; }
+      if (!pinOk(f.elements.pin.value)) { alert("조회용 PIN은 숫자 4자리로 정하세요."); return null; }
+      return { sid: p.sid, name, lookup: await lookupKey(name, f.elements.pin.value) };
+    };
+    const done = (f, extra) => {
+      f.reset();
+      alert(`신청되었습니다.${extra}\n'신청 결과 조회'에서 이름과 방금 정한 PIN 4자리로 확인하세요. PIN을 꼭 기억해 두세요.`);
     };
     $("#appForm").onsubmit = (e) => {
       e.preventDefault();
-      const f = e.target, sid = checkSid(f); if (!sid) return;
-      const d = Object.fromEntries(new FormData(f));
+      const f = e.target, d = Object.fromEntries(new FormData(f));
       const title = d.title.trim(), key = keyOf(title);
-      const btn = f.querySelector("button");
-      busy(btn, async () => {
-        const mine = await store().statusBySid(sid);
+      busy(f.querySelector("button"), async () => {
+        const c = await checkForm(f); if (!c) return;
+        const mine = await store().statusByLookup(c.lookup);
         if (mine.some((s) => s.kind === "app" && s.status === "pending" && keyOf(s.title) === key)) return alert("이미 같은 신청이 검토 중입니다.");
-        await store().submitApp({ sid, kind: d.kind === "site" ? "site" : "app", title, url: d.url.trim(), purpose: d.purpose.trim(), key });
-        f.reset();
-        alert(`신청되었습니다. '신청 결과 조회'에서 학번 ${sid}로 처리 결과를 확인하세요.`);
+        await store().submitApp({ sid: c.sid, name: c.name, kind: d.kind === "site" ? "site" : "app", title, url: d.url.trim(), purpose: d.purpose.trim(), key }, c.lookup);
+        done(f, "");
       });
     };
     $("#pwForm").onsubmit = (e) => {
       e.preventDefault();
-      const f = e.target, sid = checkSid(f); if (!sid) return;
-      const d = Object.fromEntries(new FormData(f));
-      const btn = f.querySelector("button");
-      busy(btn, async () => {
-        const mine = await store().statusBySid(sid);
+      const f = e.target, d = Object.fromEntries(new FormData(f));
+      busy(f.querySelector("button"), async () => {
+        const c = await checkForm(f); if (!c) return;
+        const mine = await store().statusByLookup(c.lookup);
         if (mine.some((s) => s.kind === "pw" && s.status === "pending")) return alert("이미 비밀번호 재설정 신청이 검토 중입니다. 조금만 기다려 주세요.");
-        await store().submitPw({ sid, name: d.name.trim(), reason: d.reason.trim() });
-        f.reset();
-        alert(`신청되었습니다. 처리되면 디벗으로 메시지가 갑니다.\n'신청 결과 조회'에서 학번 ${sid}로 확인할 수 있습니다.`);
+        await store().submitPw({ sid: c.sid, name: c.name, reason: d.reason.trim() }, c.lookup);
+        done(f, " 처리되면 디벗으로 메시지가 갑니다.");
       });
     };
   }
 
-  // 신청 결과 조회 화면 아래쪽: 학번으로 디벗 신청 확인
-  function statusSection(box, sid0) {
+  // 신청 결과 조회 화면 아래쪽: 이름 + PIN으로 디벗 신청 확인
+  function statusSection(box) {
     box.innerHTML = `
       <h2 style="margin-top:28px">디벗 신청 조회</h2>
-      <p class="lead">앱·사이트 허용, 구글 비밀번호 재설정 신청 결과를 학번으로 확인합니다.</p>
+      <p class="lead">앱·사이트 허용, 구글 비밀번호 재설정 신청 결과를 이름과 신청할 때 정한 PIN 4자리로 확인합니다.</p>
       <form class="card actions" id="dbForm">
-        <input name="sid" inputmode="numeric" maxlength="5" placeholder="학번 5자리 (예: 20315)" value="${esc(sid0)}" style="flex:1;min-width:200px" required>
+        <input name="name" placeholder="이름" maxlength="20" style="flex:1;min-width:140px" required autocomplete="off">
+        <input name="pin" type="password" inputmode="numeric" maxlength="4" placeholder="PIN 4자리" style="width:130px" required autocomplete="off">
         <button class="btn">조회</button>
       </form>
       <div id="dbResult"></div>`;
-    const show = async (raw) => {
-      const p = window.parseSid(String(raw).trim());
-      if (!p) return ($("#dbResult").innerHTML = '<div class="card error">학번 5자리를 정확히 입력하세요.</div>');
-      const list = await store().statusBySid(p.sid);
-      $("#dbResult").innerHTML = list.length ? `<div class="card"><h2>${esc(p.sid)} 디벗 신청 (${list.length}건)</h2>
+    const show = async (nameRaw, pin) => {
+      const name = String(nameRaw).replace(/\s/g, "");
+      if (!name || !pinOk(pin)) return ($("#dbResult").innerHTML = '<div class="card error">이름과 PIN 숫자 4자리를 입력하세요.</div>');
+      const list = await store().statusByLookup(await lookupKey(name, pin));
+      $("#dbResult").innerHTML = list.length ? `<div class="card"><h2>${esc(name)} 디벗 신청 (${list.length}건)</h2>
         ${list.map((s) => `<div class="notice"><div style="flex:1">
           <b>${s.kind === "pw" ? "🔑" : "📱"} ${esc(s.title)}</b> <span class="badge ${s.status === "done" ? "approved" : s.status === "rejected" ? "rejected" : "pending"}">${REQ[s.status] || s.status}</span><br>
           <span class="muted">신청일 ${day(s.createdAt)}</span>
           ${s.kind === "pw" && s.status === "done" ? `<div class="dibut-msg">📩 <b>디벗 메시지를 확인하세요.</b> 임시 비밀번호가 본인 디벗 알림으로 전송되었습니다.</div>` : ""}
           ${s.note && !(s.kind === "pw" && s.status === "done") ? `<div><b>실무사 메모:</b> ${esc(s.note)}</div>` : ""}
         </div></div>`).join("")}</div>`
-        : `<div class="card error">${esc(p.sid)} 학번으로 접수된 디벗 신청이 없습니다.</div>`;
+        : `<div class="card error">일치하는 신청이 없습니다. 이름과 PIN을 다시 확인하세요. (PIN을 잊었다면 과학정보부로 문의)</div>`;
     };
-    $("#dbForm").onsubmit = (e) => { e.preventDefault(); show(new FormData(e.target).get("sid")); };
-    if (sid0) show(sid0);
+    $("#dbForm").onsubmit = (e) => { e.preventDefault(); const fd = new FormData(e.target); show(fd.get("name"), fd.get("pin")); };
   }
 
   // =====================================================================
@@ -675,14 +691,14 @@
         return `<div class="card">
           <div class="actions" style="justify-content:space-between"><b>${r0.kind === "app" ? "📱 앱" : "🌐 사이트"} · ${esc(titles.join(" / "))}</b><span class="badge pending">${g.length}명 신청</span></div>
           ${urls.length ? `<p class="small" style="margin:4px 0">${urls.map((u) => /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u)).join("<br>")}</p>` : ""}
-          <ul class="small" style="margin:6px 0;padding-left:18px">${g.map((r) => `<li>${esc(r.sid)} · ${esc(r.purpose)} <span class="muted">(${day(r.createdAt)})</span></li>`).join("")}</ul>
+          <ul class="small" style="margin:6px 0;padding-left:18px">${g.map((r) => `<li>${esc(r.sid)} ${esc(r.name || "")} · ${esc(r.purpose)} <span class="muted">(${day(r.createdAt)})</span></li>`).join("")}</ul>
           <div class="actions"><button class="btn ok sm" data-ok="${i}">허용 완료</button><button class="btn bad sm" data-no="${i}">불가</button></div>
         </div>`;
       }).join("") || '<p class="muted">대기 중인 신청이 없습니다.</p>'}
       <details><summary class="muted" style="cursor:pointer;margin:16px 0">처리된 신청 ${done.length}건 보기</summary>
         ${done.length ? `<div class="actions" style="margin-bottom:10px"><button class="btn ghost sm del-t" id="apClean">처리된 신청 모두 삭제</button></div>` : ""}
-        <div class="table-wrap"><table class="mini"><tr><th>신청일</th><th>학번</th><th>이름</th><th>목적</th><th>결과</th><th>메모</th></tr>
-        ${done.map((r) => `<tr><td>${day(r.createdAt)}</td><td>${esc(r.sid)}</td><td>${esc(r.title)}</td><td class="small">${esc(r.purpose)}</td><td>${REQ[r.status]}</td><td class="small">${esc(r.adminNote)}</td></tr>`).join("")}</table></div></details>`;
+        <div class="table-wrap"><table class="mini"><tr><th>신청일</th><th>신청자</th><th>앱·사이트</th><th>목적</th><th>결과</th><th>메모</th></tr>
+        ${done.map((r) => `<tr><td>${day(r.createdAt)}</td><td>${esc(r.sid)} ${esc(r.name || "")}</td><td>${esc(r.title)}</td><td class="small">${esc(r.purpose)}</td><td>${REQ[r.status]}</td><td class="small">${esc(r.adminNote)}</td></tr>`).join("")}</table></div></details>`;
     el.querySelectorAll("[data-ok]").forEach((b) => (b.onclick = async () => {
       const g = gl[+b.dataset.ok];
       const v = await dialog(`${g[0].title} 허용 완료 (${g.length}명)`, `<label>학생에게 보일 메모<input name="msg" value="${esc(APP_DONE_NOTE)}"></label>`, "허용 완료");

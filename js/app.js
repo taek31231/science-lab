@@ -292,7 +292,7 @@
       </form>
       <div id="stResult"></div>
       <div id="dibutStatusBox"></div>`;
-    window.Dibut.statusSection($("#dibutStatusBox"), q.get("sid") || "");
+    window.Dibut.statusSection($("#dibutStatusBox"));
     const show = async (team) => {
       team = team.trim(); if (!team) return;
       const list = await Store.listStatusByTeam(team);
