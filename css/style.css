@@ -238,6 +238,8 @@ table.dev td { vertical-align: middle; }
 .pw-box span { color: var(--muted); font-size: 13px; font-weight: 600; }
 .pw-box b { font-size: 22px; letter-spacing: 1px; }
 .pw-msg { width: 100%; font-size: 13px; }
+.badge.google { background: #fef3c7; color: #92400e; }
+.google-help { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; }
 .dibut-msg { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
 label.btn { display: inline-flex; align-items: center; cursor: pointer; flex-direction: row; }
 tr.bad-row td { background: #fef2f2; color: #b91c1c; }

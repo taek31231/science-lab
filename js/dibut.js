@@ -198,6 +198,7 @@
           <div class="row"><label>앱·사이트 이름<input name="title" maxlength="60" required placeholder="예) 패들렛"></label></div>
           <div class="row"><label>링크 (선택)<input name="url" maxlength="300" placeholder="Play 스토어 주소나 사이트 주소"></label></div>
           <div class="row"><label>사용 목적 (과목·선생님)<input name="purpose" maxlength="200" required placeholder="예) 국어 수업 모둠 활동 (OOO 선생님)"></label></div>
+          <label class="inline-check" style="margin:2px 0 10px"><input type="checkbox" name="googleAuth"> 학교 구글 계정으로 로그인할 때 <b>'관리자 승인 필요'</b> 또는 <b>'액세스 차단'</b> 화면이 떠요</label>
           <button class="btn">신청하기</button>
           <p class="muted small" style="margin:8px 0 0">학교 수업·활동 목적이 아니면 허용되지 않을 수 있습니다.</p>
         </form>
@@ -232,7 +233,7 @@
         const c = await checkForm(f); if (!c) return;
         const mine = await store().statusByLookup(c.lookup);
         if (mine.some((s) => s.kind === "app" && s.status === "pending" && keyOf(s.title) === key)) return alert("이미 같은 신청이 검토 중입니다.");
-        await store().submitApp({ sid: c.sid, name: c.name, kind: d.kind === "site" ? "site" : "app", title, url: d.url.trim(), purpose: d.purpose.trim(), key }, c.lookup);
+        await store().submitApp({ sid: c.sid, name: c.name, kind: d.kind === "site" ? "site" : "app", title, url: d.url.trim(), purpose: d.purpose.trim(), key, googleAuth: !!f.elements.googleAuth.checked }, c.lookup);
         done(f, "");
       });
     };
@@ -688,10 +689,13 @@
       <h2>대기 중 (${pending.length}건 · ${gl.length}종)</h2>
       ${gl.map((g, i) => {
         const r0 = g[0], urls = [...new Set(g.map((r) => r.url).filter(Boolean))], titles = [...new Set(g.map((r) => r.title))];
+        const ga = g.filter((r) => r.googleAuth).length;
         return `<div class="card">
-          <div class="actions" style="justify-content:space-between"><b>${r0.kind === "app" ? "📱 앱" : "🌐 사이트"} · ${esc(titles.join(" / "))}</b><span class="badge pending">${g.length}명 신청</span></div>
+          <div class="actions" style="justify-content:space-between"><b>${r0.kind === "app" ? "📱 앱" : "🌐 사이트"} · ${esc(titles.join(" / "))}</b>
+            <span class="actions">${ga ? `<span class="badge google" title="구글 계정 로그인 시 '관리자 승인 필요' 화면이 뜬다고 체크한 학생 수">🔐 구글 관리자 승인 필요 ${ga}명</span>` : ""}<span class="badge pending">${g.length}명 신청</span></span></div>
+          ${ga ? `<p class="small google-help">구글 관리 콘솔 → 보안 → 액세스 및 데이터 제어 → <b>API 제어</b> → 앱 액세스 제어 관리(서드 파티 앱)에서 '${esc(r0.title)}'을(를) 찾아 <b>신뢰함</b>(또는 제한됨)으로 설정하세요. <a href="https://admin.google.com/ac/owl/list?tab=configuredApps" target="_blank" rel="noopener">열기 ↗</a></p>` : ""}
           ${urls.length ? `<p class="small" style="margin:4px 0">${urls.map((u) => /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u)).join("<br>")}</p>` : ""}
-          <ul class="small" style="margin:6px 0;padding-left:18px">${g.map((r) => `<li>${esc(r.sid)} ${esc(r.name || "")} · ${esc(r.purpose)} <span class="muted">(${day(r.createdAt)})</span></li>`).join("")}</ul>
+          <ul class="small" style="margin:6px 0;padding-left:18px">${g.map((r) => `<li>${esc(r.sid)} ${esc(r.name || "")} · ${esc(r.purpose)}${r.googleAuth ? " · 🔐" : ""} <span class="muted">(${day(r.createdAt)})</span></li>`).join("")}</ul>
           <div class="actions"><button class="btn ok sm" data-ok="${i}">허용 완료</button><button class="btn bad sm" data-no="${i}">불가</button></div>
         </div>`;
       }).join("") || '<p class="muted">대기 중인 신청이 없습니다.</p>'}

@@ -98,7 +98,8 @@ service cloud.firestore {
     // 앱·사이트 허용 신청
     match /appRequests/{id} {
       allow read, update, delete: if isAdmin();
-      allow create: if request.resource.data.keys().hasOnly(['sid','name','kind','title','url','purpose','key','status','adminNote','createdAt'])
+      allow create: if request.resource.data.keys().hasOnly(['sid','name','kind','title','url','purpose','key','googleAuth','status','adminNote','createdAt'])
+        && request.resource.data.get('googleAuth', false) is bool
         && request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && sidOk(request.resource.data)
