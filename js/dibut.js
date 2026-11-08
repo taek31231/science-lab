@@ -281,7 +281,7 @@
   // =====================================================================
   let sub = "devices";
   async function admin(body) {
-    const subs = { devices: "기기 현황", pw: "비밀번호 요청", apps: "앱·사이트 신청", fresh: "신입생 계정 CSV" };
+    const subs = { devices: "기기 현황", pw: "비밀번호 요청", apps: "앱·사이트 신청", fresh: "신입생 계정 CSV", promote: "진급 CSV" };
     body.innerHTML = `<div class="tabs subtabs">${Object.entries(subs).map(([k, v]) => `<button data-s="${k}" class="${k === sub ? "on" : ""}">${v}<span data-cnt="${k}"></span></button>`).join("")}</div><div id="dbBody"></div>`;
     body.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sub = b.dataset.s; admin(body); }));
     // 대기 건수 표시
@@ -291,7 +291,7 @@
       if (n2) body.querySelector('[data-cnt="apps"]').innerHTML = ` <b class="cnt">${n2}</b>`;
     }).catch(() => {});
     const el = $("#dbBody", body);
-    await ({ devices: adminDevices, pw: adminPw, apps: adminApps, fresh: adminFresh })[sub](el);
+    await ({ devices: adminDevices, pw: adminPw, apps: adminApps, fresh: adminFresh, promote: adminPromote })[sub](el);
   }
 
   // ---------------- 기기 현황 ----------------
@@ -857,6 +857,163 @@
       });
     };
     draw();
+  }
+
+  // ---------------- 진급 CSV (브라우저 안에서만 처리, 저장 안 함) ----------------
+  // ① 구글 관리 콘솔 '사용자 다운로드' CSV (성=현재 학번) + ② 진급 정보(NEIS 일괄반편성 엑셀 또는 '이전학번 새학번' 목록)
+  //   → 성(Last Name)=새 학번, 조직 경로=새 학년·반 으로 바꾼 '사용자 일괄 업데이트' CSV
+  const baseName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]$/, ""); // 동명이인 표시(김민준A) 떼기
+  async function promoFromXlsx(file) {
+    if (!/\.xlsx$/i.test(file.name)) throw new Error("xlsx 파일만 읽을 수 있습니다. NEIS에서 받은 .xls 파일은 엑셀에서 '다른 이름으로 저장 → Excel 통합 문서(*.xlsx)'로 바꿔 주세요.");
+    await window.Forms.loadExcel();
+    const wb = new window.ExcelJS.Workbook();
+    await wb.xlsx.load(await file.arrayBuffer());
+    const ws = wb.worksheets[0];
+    const T = (c) => window.Forms.cellText(c && c.value);
+    let hdr = 0, cols = null;
+    ws.eachRow({ includeEmpty: false }, (row, n) => {
+      if (hdr) return;
+      const c = {}; row.eachCell((cell, i) => { const h = T(cell).replace(/\s/g, ""); if (h) c[h] = i; });
+      const find = (...res) => { for (const re of res) { const k = Object.keys(c).find((h) => re.test(h)); if (k) return c[k]; } return 0; };
+      const x = { name: find(/^(성명|이름|학생명)$/), pg: find(/^이전학년/), pc: find(/^이전반(명|코드)?$/), pn: find(/^이전(반)?번호$/),
+        ng: find(/^진급학년/), nc: find(/^진급반코드$/, /^진급반(명)?$/), nn: find(/^진급(반)?번호$/, /^진급반번호/) };
+      if (x.pg && x.pc && x.pn && x.ng && x.nc && x.nn) { hdr = n; cols = x; }
+    });
+    if (!hdr) throw new Error("첫 시트에서 '이전학년·이전반·이전번호·진급학년·진급반·진급번호' 제목을 찾지 못했습니다. NEIS 일괄반편성 파일이 맞는지 확인하세요.");
+    const num = (s) => +String(s).replace(/\D/g, "") || 0;
+    const out = [];
+    ws.eachRow({ includeEmpty: false }, (row, n) => {
+      if (n <= hdr) return;
+      const v = (i) => (i ? T(row.getCell(i)) : "");
+      const from = `${num(v(cols.pg))}${p2(num(v(cols.pc)))}${p2(num(v(cols.pn)))}`, to = `${num(v(cols.ng))}${p2(num(v(cols.nc)))}${p2(num(v(cols.nn)))}`;
+      if (window.parseSid(from) && window.parseSid(to)) out.push({ from, to, name: v(cols.name) });
+    });
+    return out;
+  }
+  function promoFromText(text) {
+    const out = [], bad = [];
+    text.split(/\r?\n/).forEach((line, i) => {
+      const t = line.trim(); if (!t) return;
+      const nums = t.match(/\d{5}/g) || [], name = (t.replace(/\d+/g, " ").match(/[가-힣A-Za-z]+/g) || []).join("");
+      if (nums.length >= 2) out.push({ from: nums[0], to: nums[1], name });
+      else if (!/학번|이전|진급/.test(t)) bad.push(`${i + 1}번째 줄: ${t}`);
+    });
+    return { list: out, bad };
+  }
+  function adminPromote(el) {
+    el.innerHTML = `
+      <div class="card help small">구글 계정의 <b>학번(성 칸)과 조직 경로</b>를 새 학년으로 바꾸는 '사용자 일괄 업데이트' CSV를 만듭니다. 파일은 <u>이 브라우저 안에서만</u> 처리되고 저장되지 않습니다.
+        <ol style="margin:6px 0 0;padding-left:18px">
+          <li>관리 콘솔 → 디렉터리 → 사용자 → 진급할 학년 조직 선택 → <b>사용자 다운로드</b> (모든 사용자 정보 열, CSV)</li>
+          <li>진급 정보: NEIS <b>일괄반편성 파일</b>(xlsx) 또는 '이전학번 새학번' 목록</li>
+          <li>만든 CSV를 <b>사용자 일괄 업데이트</b>로 올리기. 새 조직(예: /학생/2학년/9반)은 콘솔에 <b>미리 만들어 두어야</b> 합니다.</li>
+        </ol></div>
+      <div class="grid2">
+        <div class="card">
+          <h2>① 구글 사용자 다운로드 CSV</h2>
+          <label class="btn ghost sm">CSV 파일 고르기<input type="file" accept=".csv" hidden id="pmUsers"></label>
+          <p class="muted small" id="pmUsersInfo">아직 고르지 않았습니다.</p>
+        </div>
+        <div class="card">
+          <h2>② 진급 정보</h2>
+          <label class="btn ghost sm">NEIS 일괄반편성 엑셀 고르기<input type="file" accept=".xlsx" hidden id="pmNeis"></label>
+          <p class="muted small" style="margin:8px 0 4px">또는 '이전학번 새학번 (이름)'을 한 줄에 한 명씩 붙여넣기:</p>
+          <textarea id="pmText" rows="5" placeholder="11014	20906	홍길동&#10;11002	20702	김철수"></textarea>
+          <p class="muted small" id="pmInfo"></p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>③ 설정</h2>
+        <div class="row"><label>새 조직 경로 형식<input id="pmOrg" value="/학생/{학년}학년/{반}반"></label>
+          <label>진급 정보에 없는 학생 (전출·자퇴·졸업)<select id="pmMiss"><option value="skip">업로드 파일에서 빼기 (그대로 둠)</option><option value="move">아래 조직으로 옮기기</option></select></label>
+          <label>옮길 조직<input id="pmMissOrg" placeholder="예) /졸업·전출" disabled></label></div>
+        <label class="inline-check"><input type="checkbox" id="pmOrgOn" checked> 조직 경로도 새 학년·반으로 바꾸기</label>
+      </div>
+      <div class="card">
+        <div class="actions" style="justify-content:space-between"><h2 style="margin:0">④ 미리보기</h2>
+          <div class="actions"><button class="btn" id="pmCsv" disabled>업로드용 CSV 내려받기</button><button class="btn ghost" id="pmDev" disabled>디벗 기기대장에도 반영</button></div></div>
+        <div id="pmOut" style="margin-top:10px"><p class="muted">①과 ②를 넣으면 결과가 여기에 보입니다.</p></div>
+      </div>`;
+    let users = null, neis = null; // users: { head, rows }, neis: [{from,to,name}]
+    const build = () => {
+      const info = neis || promoFromText($("#pmText").value).list;
+      $("#pmInfo").textContent = info.length ? `진급 정보 ${info.length}명` : "";
+      if (!users || !info.length) { $("#pmCsv").disabled = $("#pmDev").disabled = true; return null; }
+      const h = users.head, ci = (re) => h.findIndex((x) => re.test(x));
+      const cF = ci(/^First Name/i), cL = ci(/^Last Name/i), cE = ci(/^Email Address/i), cO = ci(/^Org Unit Path/i);
+      const byFrom = {}; info.forEach((p) => (byFrom[p.from] = p));
+      const used = new Set(), out = [], changes = [], skipped = [], moved = [], nameWarn = [];
+      const tpl = $("#pmOrg").value, orgOn = $("#pmOrgOn").checked, miss = $("#pmMiss").value, missOrg = $("#pmMissOrg").value.trim();
+      users.rows.forEach((r) => {
+        const cur = (r[cL] || "").trim(), p = byFrom[cur];
+        const row = r.slice();
+        if (p) {
+          used.add(cur);
+          if (p.name && r[cF] && baseName(r[cF]) !== baseName(p.name)) { nameWarn.push(`${cur} ${r[cF]} ↔ 진급정보 ${p.name}`); return; }
+          const s = window.parseSid(p.to);
+          row[cL] = p.to;
+          if (orgOn && cO >= 0) row[cO] = tpl.replace("{학년}", s.grade).replace("{반}", s.cls);
+          out.push(row); changes.push({ email: r[cE], name: r[cF], from: cur, to: p.to, org: row[cO] });
+        } else if (miss === "move" && missOrg && cO >= 0) {
+          row[cO] = missOrg; out.push(row); moved.push(`${cur || "(학번 없음)"} ${r[cF]}`);
+        } else skipped.push(`${cur || "(학번 없음)"} ${r[cF]} (${(r[cE] || "").split("@")[0]})`);
+      });
+      const noAccount = info.filter((p) => !used.has(p.from)).map((p) => `${p.from}→${p.to} ${p.name || ""}`);
+      $("#pmCsv").disabled = !out.length; $("#pmDev").disabled = !changes.length;
+      const list = (title, arr, cls = "") => arr.length ? `<details ${cls ? "open" : ""}><summary class="${cls}">${title} ${arr.length}명</summary><p class="small">${arr.map(esc).join(" · ")}</p></details>` : "";
+      $("#pmOut").innerHTML = `
+        <p><b>학번이 바뀌는 계정 ${changes.length}명</b>${moved.length ? ` · 다른 조직으로 옮길 계정 ${moved.length}명` : ""}</p>
+        ${list("⚠ 이름이 달라 제외한 계정", nameWarn, "warn")}
+        ${list("진급 정보에 없는 계정 (전출·자퇴·졸업 확인)", miss === "move" ? [] : skipped)}
+        ${list("옮길 계정", moved)}
+        ${list("계정이 없는 학생 (전입생 → '신입생 계정 CSV'에서 새로 만들기)", noAccount)}
+        <div class="table-wrap" style="max-height:340px;overflow:auto;margin-top:8px"><table class="mini"><tr><th>이름</th><th>계정</th><th>이전 학번</th><th>새 학번</th><th>새 조직 경로</th></tr>
+          ${changes.map((c) => `<tr><td>${esc(c.name)}</td><td class="small">${esc(c.email)}</td><td>${esc(c.from)}</td><td><b>${esc(c.to)}</b></td><td class="small">${esc(c.org || "")}</td></tr>`).join("")}</table></div>`;
+      return { out, changes };
+    };
+    const csvText = (head, rows) => {
+      const q = (s) => (/[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s);
+      return [head, ...rows].map((r) => r.map((x) => q(x ?? "")).join(",")).join("\r\n");
+    };
+    $("#pmUsers").onchange = async (e) => {
+      const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+      try {
+        const rows = parseCsv(await file.text());
+        const head = rows[0].map((x) => x.trim());
+        if (!head.some((x) => /^Last Name/i.test(x)) || !head.some((x) => /^Email Address/i.test(x))) throw new Error("구글 관리 콘솔에서 받은 사용자 CSV가 아닌 것 같습니다 ('Last Name', 'Email Address' 열이 없음).");
+        users = { head, rows: rows.slice(1).map((r) => { while (r.length < head.length) r.push(""); return r; }) };
+        $("#pmUsersInfo").textContent = `${file.name} · 계정 ${users.rows.length}개`;
+        build();
+      } catch (err) { alert(err.message); }
+    };
+    $("#pmNeis").onchange = async (e) => {
+      const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+      try { neis = await promoFromXlsx(file); $("#pmText").value = ""; $("#pmText").placeholder = `${file.name}에서 ${neis.length}명을 읽었습니다.`; build(); }
+      catch (err) { alert(err.message); }
+    };
+    $("#pmText").oninput = () => { neis = null; build(); };
+    ["#pmOrg", "#pmMissOrg"].forEach((s) => ($(s).oninput = build));
+    $("#pmOrgOn").onchange = build;
+    $("#pmMiss").onchange = (e) => { $("#pmMissOrg").disabled = e.target.value !== "move"; build(); };
+    $("#pmCsv").onclick = () => {
+      const r = build(); if (!r || !r.out.length) return;
+      if ($("#pmOrgOn").checked && !confirm("새 조직(예: " + (r.changes[0] && r.changes[0].org) + ")이 관리 콘솔에 미리 만들어져 있어야 업로드됩니다. 내려받을까요?")) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["﻿" + csvText(users.head, r.out)], { type: "text/csv;charset=utf-8" }));
+      a.download = `구글계정_진급_${stamp()}_${r.out.length}명.csv`;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
+    $("#pmDev").onclick = (e) => {
+      const r = build(); if (!r) return;
+      busy(e.target, async () => {
+        const list = await store().listDevices();
+        const plan = promotePlan(csvText(users.head, r.out), list);
+        if (!plan.changes.length) return alert("기기대장에서 학번을 바꿀 기기가 없습니다. (계정이 기기대장에 없거나 이미 반영됨)");
+        if (!confirm(`디벗 기기대장에서 ${plan.changes.length}대의 학번을 바꿀까요?${plan.missing.length ? `\n(기기대장에 계정이 없는 학생 ${plan.missing.length}명은 건너뜀)` : ""}`)) return;
+        await store().saveDevices(plan.changes.map((c) => c.next));
+        alert(`기기대장 ${plan.changes.length}대의 학번을 바꿨습니다.`);
+      });
+    };
   }
 
   window.Dibut = { studentView, statusSection, admin };
