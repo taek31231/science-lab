@@ -80,7 +80,8 @@
     panel.className = "bell-panel"; panel.hidden = true;
     bar.insertBefore(bell, bar.querySelector(".menu-btn"));
     document.body.appendChild(panel);
-    bell.onclick = (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; if (!panel.hidden) drawPanel(true); };
+    // 종을 누르면 열기/닫기, 창 바깥을 누르거나 Esc를 누르면 닫기
+    bell.onclick = (e) => { e.stopPropagation(); if (panel.hidden) { panel.hidden = false; drawPanel(); } else closePanel(); };
     document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target)) closePanel(); });
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
   }
