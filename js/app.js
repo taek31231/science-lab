@@ -828,6 +828,15 @@
     };
   }
 
+  // 알림창(🔔)에서 항목을 누르면 해당 관리자 화면으로 이동
+  window.App = {
+    openAdmin(tab, sub) {
+      adminTab = tab; adminYear = curYear();
+      if (sub) window.Dibut.setSub(sub);
+      if (location.hash.split("?")[0] === "#/admin") render(); else location.hash = "#/admin";
+    }
+  };
+
   // ---------- 시작 ----------
   $("#brandName").textContent = `${S.schoolName} ${S.deptName}`;
   $("#footerDept").textContent = `${S.schoolName} ${S.deptName}`;

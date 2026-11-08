@@ -1020,5 +1020,5 @@
     };
   }
 
-  window.Dibut = { studentView, statusSection, admin };
+  window.Dibut = { studentView, statusSection, admin, setSub: (s) => { sub = s; } };
 })();

@@ -3,7 +3,23 @@
 (function () {
   const BASE_TITLE = document.title;
   const KINDS = { lab: "실험실", purchase: "물품", pw: "비밀번호", app: "앱·사이트" };
-  let counts = {}, unsubs = [], timer = null, lastTotal = null, installEvt = null;
+  const ICONS = { lab: "🧪", purchase: "🛒", pw: "🔑", app: "📱" };
+  // 알림창 항목을 누르면 갈 관리자 화면: [관리자 탭, 디벗 관리 안쪽 탭]
+  const GOTO = { lab: ["requests"], purchase: ["purchases"], pw: ["dibut", "pw"], app: ["dibut", "apps"] };
+  let counts = {}, items = {}, unsubs = [], timer = null, lastTotal = null, installEvt = null;
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const ms = (t) => (t && t.toMillis ? t.toMillis() : +t || 0);
+  // 신청 한 건 → 알림창 한 줄 (누가, 무엇을)
+  function summarize(kind, r) {
+    const u0 = (r.users || []).find((u) => u && (u.sid || u.name)) || {};
+    const who = { lab: [r.team, [u0.sid, u0.name].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+      purchase: [r.team, [r.sid, r.name].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+      pw: [r.sid, r.name].filter(Boolean).join(" "), app: [r.sid, r.name].filter(Boolean).join(" ") }[kind];
+    const what = { lab: [r.date, r.start && `${r.start}~${r.end}`, r.lab].filter(Boolean).join(" "),
+      purchase: `품목 ${(r.items || []).length}개${r.useDate ? ` · 사용예정 ${r.useDate}` : ""}`,
+      pw: "구글 비밀번호 재설정", app: `${r.kind === "site" ? "사이트" : "앱"} '${r.title || ""}'${r.googleAuth ? " 🔐" : ""}` }[kind];
+    return { kind, id: r.id, at: ms(r.createdAt), who: who || "(이름 없음)", what };
+  }
   const iconLink = document.querySelector('link[rel="icon"]');
   const ICON = "img/icon-192.png";
 
@@ -44,6 +60,62 @@
     if (lastTotal !== null && total > lastTotal) notify(total - lastTotal, total);
     lastTotal = total;
     refreshControl();
+    drawBell();
+  }
+
+  // ---------- 🔔 알림창 (상단 메뉴) ----------
+  const SEEN = "sci-bell-seen";
+  const seen = () => { try { return +localStorage.getItem(SEEN) || 0; } catch { return 0; } };
+  const fmt = (t) => { if (!t) return ""; const d = new Date(t), p = (n) => String(n).padStart(2, "0");
+    const today = new Date().toDateString() === d.toDateString();
+    return `${today ? "오늘" : `${d.getMonth() + 1}/${d.getDate()}`} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+  let bell = null, panel = null;
+  function ensureBell() {
+    if (bell) return;
+    const bar = document.querySelector(".topbar");
+    bell = document.createElement("button");
+    bell.className = "bell"; bell.type = "button"; bell.title = "대기 중인 신청"; bell.hidden = true;
+    bell.innerHTML = '🔔<span class="bell-cnt"></span>';
+    panel = document.createElement("div");
+    panel.className = "bell-panel"; panel.hidden = true;
+    bar.insertBefore(bell, bar.querySelector(".menu-btn"));
+    document.body.appendChild(panel);
+    bell.onclick = (e) => { e.stopPropagation(); panel.hidden = !panel.hidden; if (!panel.hidden) drawPanel(true); };
+    document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target)) closePanel(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePanel(); });
+  }
+  function closePanel() {
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    try { localStorage.setItem(SEEN, String(Date.now())); } catch {} // 열어 본 시각 → 그 뒤 들어온 것만 NEW
+    drawBell();
+  }
+  const allItems = () => Object.values(items).flat().sort((a, b) => b.at - a.at);
+  function drawBell() {
+    ensureBell();
+    const list = allItems(), fresh = list.filter((x) => x.at > seen()).length;
+    bell.hidden = !unsubs.length && !timer;
+    bell.classList.toggle("has-new", fresh > 0);
+    bell.querySelector(".bell-cnt").textContent = list.length ? (list.length > 99 ? "99+" : list.length) : "";
+    if (!panel.hidden) drawPanel(false);
+  }
+  function drawPanel() {
+    const list = allItems(), s = seen();
+    const byKind = Object.keys(KINDS).map((k) => `${KINDS[k]} ${(items[k] || []).length}`).join(" · ");
+    panel.innerHTML = `
+      <div class="bell-head"><b>대기 중인 신청 ${list.length}건</b><span class="muted small">${byKind}</span></div>
+      <div class="bell-list">${list.map((x, i) => `
+        <button type="button" class="bell-item ${x.at > s ? "new" : ""}" data-i="${i}">
+          <span class="bell-ico">${ICONS[x.kind]}</span>
+          <span class="bell-body"><span class="bell-top"><b>${KINDS[x.kind]}</b>${x.at > s ? '<span class="bell-new">NEW</span>' : ""}<span class="bell-time">${fmt(x.at)}</span></span>
+            <span class="bell-who">${esc(x.who)}</span><span class="bell-what muted">${esc(x.what)}</span></span>
+        </button>`).join("") || '<p class="muted" style="padding:16px;margin:0;text-align:center">대기 중인 신청이 없습니다.</p>'}</div>
+      <div class="bell-foot muted small">항목을 누르면 처리 화면으로 이동합니다.</div>`;
+    panel.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => {
+      const x = list[+b.dataset.i];
+      closePanel();
+      if (window.App && window.App.openAdmin) window.App.openAdmin(...GOTO[x.kind]);
+    }));
   }
 
   async function notify(added, total) {
@@ -64,11 +136,12 @@
       const tick = () => {
         const get = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
         const s = get("sci-demo-v5"), d = get("sci-dibut-demo-v1");
-        const pend = (o) => Object.values(o || {}).filter((r) => r.status === "pending").length;
-        counts = { lab: pend(s.requests), purchase: pend(s.purchases), pw: pend(d.pw), app: pend(d.apps) };
+        const pend = (k, o) => Object.values(o || {}).filter((r) => r.status === "pending").map((r) => summarize(k, r));
+        items = { lab: pend("lab", s.requests), purchase: pend("purchase", s.purchases), pw: pend("pw", d.pw), app: pend("app", d.apps) };
+        counts = Object.fromEntries(Object.entries(items).map(([k, v]) => [k, v.length]));
         show();
       };
-      tick(); timer = setInterval(tick, 5000);
+      timer = setInterval(tick, 5000); tick();
       return;
     }
     const db = firebase.firestore();
@@ -76,6 +149,7 @@
     let ready = 0;
     for (const [k, col] of Object.entries(cols)) {
       unsubs.push(db.collection(col).where("status", "==", "pending").onSnapshot((snap) => {
+        items[k] = snap.docs.map((x) => summarize(k, { id: x.id, ...x.data() }));
         counts[k] = snap.size;
         if (ready < 4) { ready++; if (ready < 4) return; } // 처음엔 네 가지를 다 받은 뒤 한 번에 표시 (알림 안 띄움)
         show();
@@ -85,7 +159,9 @@
   function stop() {
     unsubs.forEach((u) => u()); unsubs = [];
     if (timer) clearInterval(timer); timer = null;
-    counts = {}; lastTotal = null;
+    counts = {}; items = {}; lastTotal = null;
+    if (panel) panel.hidden = true;
+    if (bell) drawBell();
     document.title = BASE_TITLE; drawFavicon(0);
     try { navigator.clearAppBadge && navigator.clearAppBadge(); } catch {}
     const link = document.querySelector(".topbar .admin-link"); if (link) link.dataset.count = "";

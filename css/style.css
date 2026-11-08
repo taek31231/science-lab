@@ -241,6 +241,27 @@ table.dev td { vertical-align: middle; }
 /* 메뉴 '관리자'에 대기 건수 */
 .topbar .admin-link { position: relative; }
 .topbar .admin-link[data-count]:not([data-count=""])::after { content: attr(data-count); position: absolute; top: -6px; right: -8px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #e11d48; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+/* 🔔 알림창 */
+.bell { position: relative; font-size: 20px; line-height: 1; background: none; border: 0; cursor: pointer; padding: 6px 8px; margin-left: 6px; border-radius: 8px; }
+.bell:hover { background: rgba(255,255,255,.12); }
+.bell-cnt:not(:empty) { position: absolute; top: -2px; right: -4px; min-width: 18px; padding: 0 5px; border-radius: 999px; background: #64748b; color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.bell.has-new .bell-cnt:not(:empty) { background: #e11d48; }
+.bell.has-new { animation: bell-ring 1.2s ease 2; }
+@keyframes bell-ring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(14deg); } 40% { transform: rotate(-12deg); } 60% { transform: rotate(8deg); } 80% { transform: rotate(-4deg); } }
+.bell-panel { position: fixed; top: 58px; right: 12px; width: min(380px, calc(100vw - 24px)); max-height: 70vh; display: flex; flex-direction: column; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.18); z-index: 900; overflow: hidden; }
+.bell-head { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.bell-list { overflow-y: auto; }
+.bell-item { display: flex; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
+.bell-item:hover { background: #f8fafc; }
+.bell-item.new { background: #fff7ed; }
+.bell-ico { font-size: 18px; }
+.bell-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.bell-top { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.bell-time { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.bell-new { background: #e11d48; color: #fff; font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 4px; }
+.bell-who { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bell-what { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bell-foot { padding: 8px 14px; border-top: 1px solid var(--line); background: #f8fafc; }
 .badge.google { background: #fef3c7; color: #92400e; }
 .google-help { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; }
 .dibut-msg { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: #eff6ff; color: #1e3a8a; }
