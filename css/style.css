@@ -252,6 +252,11 @@ table.dev td { vertical-align: middle; }
 .bell-panel[hidden], .bell[hidden] { display: none; }
 .bell-head { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .bell-list { overflow-y: auto; }
+.bell-prefs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; }
+.bell-prefs > span { width: 100%; }
+.bell-pref { flex-direction: row; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.bell-pref input { width: auto; margin: 0; }
+.bell-pref.on { border-color: #93c5fd; background: #eff6ff; color: var(--ink); }
 .bell-item { display: flex; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; border: 0; border-bottom: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; }
 .bell-item:hover { background: #f8fafc; }
 .bell-item.new { background: #fff7ed; }

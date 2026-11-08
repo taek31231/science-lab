@@ -50,8 +50,20 @@
     else { iconImg = new Image(); iconImg.onload = paint; iconImg.src = ICON; }
   }
 
+  // 이 컴퓨터에서 받을 알림 종류 (브라우저에 저장, 기본: 모두 켬)
+  const PREF = "sci-notify-kinds";
+  let prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF)) || {}; } catch { return {}; } })();
+  const isOn = (k) => prefs[k] !== false;
+  const myTotal = () => Object.keys(KINDS).filter(isOn).reduce((a, k) => a + (counts[k] || 0), 0);
+  function setPref(k, on) {
+    prefs = { ...prefs, [k]: on };
+    try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch {}
+    lastTotal = null; // 설정을 바꿀 때는 '새 신청' 알림을 띄우지 않음
+    show();
+  }
+
   function show() {
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const total = myTotal();
     document.title = total ? `(${total}) ${BASE_TITLE}` : BASE_TITLE;
     drawFavicon(total);
     try { if (navigator.setAppBadge) total ? navigator.setAppBadge(total) : navigator.clearAppBadge(); } catch {}
@@ -91,7 +103,7 @@
     try { localStorage.setItem(SEEN, String(Date.now())); } catch {} // 열어 본 시각 → 그 뒤 들어온 것만 NEW
     drawBell();
   }
-  const allItems = () => Object.values(items).flat().sort((a, b) => b.at - a.at);
+  const allItems = () => Object.keys(items).filter(isOn).flatMap((k) => items[k] || []).sort((a, b) => b.at - a.at);
   function drawBell() {
     ensureBell();
     const list = allItems(), fresh = list.filter((x) => x.at > seen()).length;
@@ -102,16 +114,20 @@
   }
   function drawPanel() {
     const list = allItems(), s = seen();
-    const byKind = Object.keys(KINDS).map((k) => `${KINDS[k]} ${(items[k] || []).length}`).join(" · ");
+    const anyOn = Object.keys(KINDS).some(isOn);
     panel.innerHTML = `
-      <div class="bell-head"><b>대기 중인 신청 ${list.length}건</b><span class="muted small">${byKind}</span></div>
+      <div class="bell-head"><b>대기 중인 신청 ${list.length}건</b>
+        <div class="bell-prefs"><span class="muted small">이 컴퓨터에서 받을 알림</span>
+          ${Object.keys(KINDS).map((k) => `<label class="bell-pref ${isOn(k) ? "on" : ""}"><input type="checkbox" data-pref="${k}" ${isOn(k) ? "checked" : ""}>${ICONS[k]} ${KINDS[k]} <b>${(items[k] || []).length}</b></label>`).join("")}
+        </div></div>
       <div class="bell-list">${list.map((x, i) => `
         <button type="button" class="bell-item ${x.at > s ? "new" : ""}" data-i="${i}">
           <span class="bell-ico">${ICONS[x.kind]}</span>
           <span class="bell-body"><span class="bell-top"><b>${KINDS[x.kind]}</b>${x.at > s ? '<span class="bell-new">NEW</span>' : ""}<span class="bell-time">${fmt(x.at)}</span></span>
             <span class="bell-who">${esc(x.who)}</span><span class="bell-what muted">${esc(x.what)}</span></span>
-        </button>`).join("") || '<p class="muted" style="padding:16px;margin:0;text-align:center">대기 중인 신청이 없습니다.</p>'}</div>
-      <div class="bell-foot muted small">항목을 누르면 처리 화면으로 이동합니다.</div>`;
+        </button>`).join("") || `<p class="muted" style="padding:16px;margin:0;text-align:center">${anyOn ? "대기 중인 신청이 없습니다." : "받을 알림이 모두 꺼져 있습니다."}</p>`}</div>
+      <div class="bell-foot muted small">항목을 누르면 처리 화면으로 이동합니다. 끈 종류는 숫자·목록·윈도우 알림에서 빠집니다.</div>`;
+    panel.querySelectorAll("[data-pref]").forEach((c) => (c.onchange = () => setPref(c.dataset.pref, c.checked)));
     panel.querySelectorAll("[data-i]").forEach((b) => (b.onclick = () => {
       const x = list[+b.dataset.i];
       closePanel();
@@ -121,7 +137,7 @@
 
   async function notify(added, total) {
     if (!("Notification" in window) || Notification.permission !== "granted") return;
-    const body = Object.entries(counts).filter(([, v]) => v).map(([k, v]) => `${KINDS[k]} ${v}`).join(" · ");
+    const body = Object.entries(counts).filter(([k, v]) => v && isOn(k)).map(([k, v]) => `${KINDS[k]} ${v}`).join(" · ");
     const opt = { body: `대기 중: ${body}`, icon: ICON, badge: ICON, tag: "sci-new-request", renotify: true };
     try {
       const reg = navigator.serviceWorker && (await navigator.serviceWorker.getRegistration());
@@ -175,7 +191,7 @@
   function refreshControl() {
     if (!ctl || !document.body.contains(ctl)) return;
     const perm = "Notification" in window ? Notification.permission : "unsupported";
-    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const total = myTotal();
     ctl.innerHTML = `
       <span class="muted small">대기 <b>${total}</b>건</span>
       ${installed() ? '<span class="badge approved" title="작업 표시줄 아이콘에 대기 건수가 표시됩니다">앱으로 실행 중</span>'
