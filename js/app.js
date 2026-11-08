@@ -370,6 +370,7 @@
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
         <h1>관리자</h1>
         <div class="actions">
+          <span class="actions" id="badgeCtl"></span>
           <label class="inline-check">학년도
             <select id="yearSel">${years.map((y) => `<option value="${y}" ${y === adminYear ? "selected" : ""}>${y}학년도${y === curYear() ? " (현재)" : ""}</option>`).join("")}</select></label>
           <button class="btn ghost sm" id="logout">로그아웃</button>
@@ -377,6 +378,7 @@
       <div class="tabs">${Object.entries(tabs).map(([k, v]) => `<button data-t="${k}" class="${k === adminTab ? "on" : ""}">${v}</button>`).join("")}</div>
       <div id="adminBody"></div>`;
     $("#logout").onclick = () => Store.logout();
+    window.AdminBadge.renderControl($("#badgeCtl"));
     $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
     await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
@@ -832,5 +834,9 @@
   if (Store.isDemo) $("#demoBanner").hidden = false;
   window.addEventListener("hashchange", render);
   let first = true;
-  Store.onAuth((a) => { isAdmin = a; if (first) { first = false; render(); } else if (location.hash.startsWith("#/admin")) render(); });
+  Store.onAuth((a) => {
+    isAdmin = a;
+    a ? window.AdminBadge.start() : window.AdminBadge.stop(); // 대기 건수 → 작업 표시줄·창 제목
+    if (first) { first = false; render(); } else if (location.hash.startsWith("#/admin")) render();
+  });
 })();
