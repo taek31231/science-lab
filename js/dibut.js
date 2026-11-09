@@ -451,7 +451,7 @@
         const parsed = await importLedger(file);
         const st = parsed.devices.filter((d) => d.type === "student"), te = parsed.devices.filter((d) => d.type === "teacher");
         const msg = `'${file.name}'에서 읽은 내용:\n\n학생용 ${st.length}대 (배정 ${st.filter((d) => d.state === "assigned").length} · 예비 ${st.filter((d) => d.state === "spare").length})\n교사용 ${te.length}대 (사용 ${te.filter((d) => d.state === "assigned").length})\n` +
-          (parsed.notes.length ? `\n참고:\n- ${parsed.notes.slice(0, 8).join("\n- ")}${parsed.notes.length > 8 ? `\n…외 ${parsed.notes.length - 8}건` : ""}\n` : "") +
+          (parsed.notes.length ? `\n참고:\n- ${parsed.notes.slice(0, 15).join("\n- ")}${parsed.notes.length > 15 ? `\n…외 ${parsed.notes.length - 15}건` : ""}\n` : "") +
           `\n지금 사이트에 있는 기기 목록(${list.length}대)을 이 내용으로 바꿀까요?`;
         if (!confirm(msg)) return;
         await store().replaceDevices(parsed.devices);
@@ -520,12 +520,14 @@
       const head = {}; const hr = ws.getRow(1);
       hr.eachCell({ includeEmpty: false }, (c, i) => { const h = T(c).replace(/\s/g, ""); (head[h] ||= []).push(i); });
       const col = (name, k = 0) => (head[name] || [])[k];
-      const cSerial = col("시리얼번호"), cName = col("이름"), cAcc = col("구글계정");
+      // 시트마다 제목이 조금 다름 (2026학생용: 제품일련번호·학생명)
+      const cSerial = col("시리얼번호") || col("제품일련번호"), cName = col("이름") || col("학생명"), cAcc = col("구글계정");
       if (!cSerial) { notes.push(`'${ws.name}' 시트에서 '시리얼번호' 열을 찾지 못해 건너뜀`); continue; }
       ws.eachRow({ includeEmpty: false }, (row, n) => {
         if (n === 1) return;
         const v = (c) => (c ? T(row.getCell(c)) : "");
-        const serial = v(cSerial).replace(/\s/g, ""), name = v(cName), account = v(cAcc);
+        const serial = v(cSerial).replace(/\s/g, ""), name = v(cName);
+        let account = v(cAcc);
         if (isT) {
           const tLabel = v(col("관리번호", 0)), mgmtNo = v(col("관리번호", 1)) || "";
           if (!serial && !name) return;
@@ -534,17 +536,26 @@
           Object.assign(d, { tLabel, mgmtNo, name, account, state: name ? "assigned" : "spare" });
           return;
         }
-        const grade = +v(col("학년")) || null, cls = +v(col("반")) || null, num = +v(col("번호")) || null;
+        const gRaw = v(col("학년")), grade = +gRaw || null, cls = +v(col("반")) || null, num = +v(col("번호")) || null;
         const mgmtNo = v(col("관리번호"));
-        const memo = cAcc ? [v(cAcc + 1), v(cAcc + 2)].filter(Boolean).join(" ") : ""; // 구글 계정 오른쪽 두 칸(비고). 그 옆 칸(초기 비밀번호 메모)은 읽지 않음
+        // 구글 계정 칸에 계정 대신 메모(예: "학생용 예비 25")가 있으면 메모로 취급
+        const accNote = account && !account.includes("@") ? account : "";
+        if (accNote) account = "";
+        const memo = [accNote, ...(cAcc ? [v(cAcc + 1), v(cAcc + 2)] : [])].filter(Boolean).join(" "); // 구글 계정 오른쪽 두 칸(비고). 그 옆 칸(초기 비밀번호 메모)은 읽지 않음
         if (!serial && !name && !num) return;
-        if (grade && cls && num) {
-          const gone = /자퇴|전학|전출|졸업/.test(memo);
-          const id = serial || `nosn-${batch}-${grade}${p2(cls)}${p2(num)}`;
+        if (cls && num && !/^학생용\s*예비/.test(name)) {
+          // "예비 44로 변경" = 이 기기가 예비 44번이 됨 ("예비2번에서 변경"은 예비기기를 받은 것이라 해당 없음)
+          const toSpare = memo.match(/예비\s*(\d+)\s*번?\s*(?:으로|로)\s*(?:변경|교체)/) || memo.match(/(?:->|→)\s*(?:학생용\s*)?예비\s*(\d+)/);
+          const validGrade = grade >= 1 && grade <= 3;
+          const gone = !validGrade || !!toSpare || /자퇴|전학|전출|졸업|휴학|유급/.test(memo);
+          const sid = `${gRaw || "?"}-${cls}-${p2(num)}`;
+          const id = serial || `nosn-${batch}-${gRaw}${p2(cls)}${p2(num)}`;
           const d = get(id, { serial, type: "student", batch, mgmtNo });
           if (gone) {
-            d.history.push({ at: batch, text: `${grade}-${cls}-${p2(num)} ${name} ${memo}`.trim() });
-            if (!d.rank) { d.rank = RANK.history; Object.assign(d, { state: "spare", mgmtNo: d.mgmtNo || mgmtNo }); }
+            d.history.push({ at: batch, text: `${sid} ${name} ${memo}`.trim() });
+            if (toSpare && (d.rank || 0) < RANK.spare) Object.assign(d, { rank: RANK.spare, state: "spare", spareNo: +toSpare[1], mgmtNo: d.mgmtNo || mgmtNo });
+            else if (!d.rank) { d.rank = RANK.history; Object.assign(d, { state: "spare", mgmtNo: d.mgmtNo || mgmtNo }); }
+            if (validGrade && toSpare && !/자퇴|전학|전출|졸업/.test(memo)) notes.push(`${batch} ${sid} ${name}: '${memo}' → 이 기기를 예비 ${toSpare[1]}번으로 등록 (학생이 다른 기기를 쓰는지 확인)`);
           } else if ((d.rank || 0) < RANK.assigned) {
             Object.assign(d, { rank: RANK.assigned, state: "assigned", grade, cls, num, name, account, mgmtNo: mgmtNo || d.mgmtNo, spareNo: null });
             if (memo) d.history.push({ at: batch, text: memo });
@@ -560,8 +571,14 @@
     }
     // 자퇴·전학 줄에만 있고 예비 번호가 없는 기기
     for (const d of devs.values()) {
-      if (d.type === "student" && d.state === "spare" && !d.spareNo) notes.push(`시리얼 ${d.serial}: 자퇴·전학 기록만 있고 예비 번호가 없음 (예비로 등록)`);
+      if (d.type === "student" && d.state === "spare" && !d.spareNo) notes.push(`시리얼 ${d.serial}: ${(d.history[d.history.length - 1] || {}).text || "자퇴·전학 기록"} — 예비 번호가 없음 (예비로 등록)`);
       delete d.rank;
+    }
+    // 같은 보급 연도 안에서 예비 번호가 겹치는지
+    const seen = {};
+    for (const d of devs.values()) if (d.type === "student" && d.state === "spare" && d.spareNo) {
+      const k = `${d.batch} 예비 ${d.spareNo}`;
+      if (seen[k]) notes.push(`${k}번이 두 기기(${seen[k]}, ${d.serial})에 겹침`); else seen[k] = d.serial;
     }
     return { devices: [...devs.values()], notes };
   }
