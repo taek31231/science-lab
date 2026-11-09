@@ -3,10 +3,10 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
-// 페이지 이동만 처리: 인터넷이 끊겼을 때 안내 문구 표시
+// 페이지 이동만 처리: 브라우저에 남은 옛 페이지 대신 매번 새 버전인지 확인하고, 인터넷이 끊겼을 때 안내 문구 표시
 self.addEventListener("fetch", (e) => {
   if (e.request.mode !== "navigate") return;
-  e.respondWith(fetch(e.request).catch(() => new Response(
+  e.respondWith(fetch(e.request.url, { cache: "no-cache", credentials: "same-origin" }).catch(() => new Response(
     '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<body style="font-family:sans-serif;padding:40px;text-align:center"><h2>인터넷에 연결되어 있지 않습니다</h2><p>연결된 뒤 다시 열어 주세요.</p></body>',
     { headers: { "Content-Type": "text/html; charset=utf-8" } })));
