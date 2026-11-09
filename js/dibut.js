@@ -500,6 +500,22 @@
     });
     return { changes, missing, blank, total: rows.length - 1 };
   }
+  // 진급 정보(이전 학번 → 새 학번)로 기기대장 학번 바꾸기. 구글 계정이 대장에 없어도 학번으로 찾음
+  function promoteBySid(pairs, list) {
+    const bySid = {};
+    list.filter((d) => d.type !== "teacher" && d.state === "assigned").forEach((d) => (bySid[sidOf(d)] = d));
+    const changes = [], missing = [], nameWarn = [];
+    pairs.forEach((p) => {
+      const dev = bySid[p.from], s = window.parseSid(p.to);
+      if (!s) return;
+      if (!dev) { missing.push(`${p.from} ${p.name || ""}`.trim()); return; }
+      if (p.name && dev.name && baseName(dev.name) !== baseName(p.name)) { nameWarn.push(`${p.from} 대장 ${dev.name} ↔ 진급정보 ${p.name}`); return; }
+      if (p.from === s.sid) return;
+      changes.push({ dev, from: p.from, to: s.sid, next: { ...dev, grade: s.grade, cls: s.cls, num: s.num,
+        history: [...(dev.history || []), logEntry(`진급: ${p.from} → ${s.sid}`)] } });
+    });
+    return { changes, missing, nameWarn };
+  }
 
   // 기존 기기대장 엑셀(시트: 2024학생용, 2025학생용, 교사용 디벗) → 기기 목록
   // 같은 시리얼이 여러 줄에 나오면: 현재 배정된 줄 > 예비 목록 > 자퇴·전학 줄(이력으로만) 순서로 정함
@@ -959,7 +975,8 @@
     const build = () => {
       const info = neis || promoFromText($("#pmText").value).list;
       $("#pmInfo").textContent = info.length ? `진급 정보 ${info.length}명` : "";
-      if (!users || !info.length) { $("#pmCsv").disabled = $("#pmDev").disabled = true; return null; }
+      $("#pmDev").disabled = !info.length; // 기기대장 반영은 진급 정보(학번)만 있으면 됨
+      if (!users || !info.length) { $("#pmCsv").disabled = true; return info.length ? { info, out: [], changes: [] } : null; }
       const h = users.head, ci = (re) => h.findIndex((x) => re.test(x));
       const cF = ci(/^First Name/i), cL = ci(/^Last Name/i), cE = ci(/^Email Address/i), cO = ci(/^Org Unit Path/i);
       const byFrom = {}; info.forEach((p) => (byFrom[p.from] = p));
@@ -980,7 +997,7 @@
         } else skipped.push(`${cur || "(학번 없음)"} ${r[cF]} (${(r[cE] || "").split("@")[0]})`);
       });
       const noAccount = info.filter((p) => !used.has(p.from)).map((p) => `${p.from}→${p.to} ${p.name || ""}`);
-      $("#pmCsv").disabled = !out.length; $("#pmDev").disabled = !changes.length;
+      $("#pmCsv").disabled = !out.length;
       const list = (title, arr, cls = "") => arr.length ? `<details ${cls ? "open" : ""}><summary class="${cls}">${title} ${arr.length}명</summary><p class="small">${arr.map(esc).join(" · ")}</p></details>` : "";
       $("#pmOut").innerHTML = `
         <p><b>학번이 바뀌는 계정 ${changes.length}명</b>${moved.length ? ` · 다른 조직으로 옮길 계정 ${moved.length}명` : ""}</p>
@@ -990,7 +1007,7 @@
         ${list("계정이 없는 학생 (전입생 → '신입생 계정 CSV'에서 새로 만들기)", noAccount)}
         <div class="table-wrap" style="max-height:340px;overflow:auto;margin-top:8px"><table class="mini"><tr><th>이름</th><th>계정</th><th>이전 학번</th><th>새 학번</th><th>새 조직 경로</th></tr>
           ${changes.map((c) => `<tr><td>${esc(c.name)}</td><td class="small">${esc(c.email)}</td><td>${esc(c.from)}</td><td><b>${esc(c.to)}</b></td><td class="small">${esc(c.org || "")}</td></tr>`).join("")}</table></div>`;
-      return { out, changes };
+      return { info, out, changes };
     };
     const csvText = (head, rows) => {
       const q = (s) => (/[",\n]/.test(s) ? `"${String(s).replace(/"/g, '""')}"` : s);
@@ -1028,9 +1045,11 @@
       const r = build(); if (!r) return;
       busy(e.target, async () => {
         const list = await store().listDevices();
-        const plan = promotePlan(csvText(users.head, r.out), list);
-        if (!plan.changes.length) return alert("기기대장에서 학번을 바꿀 기기가 없습니다. (계정이 기기대장에 없거나 이미 반영됨)");
-        if (!confirm(`디벗 기기대장에서 ${plan.changes.length}대의 학번을 바꿀까요?${plan.missing.length ? `\n(기기대장에 계정이 없는 학생 ${plan.missing.length}명은 건너뜀)` : ""}`)) return;
+        const plan = promoteBySid(r.info, list);
+        const extra = (plan.nameWarn.length ? `\n\n⚠ 이름이 달라 건너뜀 ${plan.nameWarn.length}명:\n- ${plan.nameWarn.slice(0, 10).join("\n- ")}` : "") +
+          (plan.missing.length ? `\n\n기기대장에 그 학번의 배정 기기가 없음 ${plan.missing.length}명: ${plan.missing.slice(0, 15).join(", ")}${plan.missing.length > 15 ? " …" : ""}` : "");
+        if (!plan.changes.length) return alert("기기대장에서 학번을 바꿀 기기가 없습니다. (이미 반영됨)" + extra);
+        if (!confirm(`디벗 기기대장에서 ${plan.changes.length}대의 학번을 바꿀까요? (이전 학번으로 찾음)${extra}`)) return;
         await store().saveDevices(plan.changes.map((c) => c.next));
         alert(`기기대장 ${plan.changes.length}대의 학번을 바꿨습니다.`);
       });
