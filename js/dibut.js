@@ -14,6 +14,14 @@
     finally { btn.disabled = false; btn.textContent = t; }
   }
   const sidOf = (d) => (d.grade && d.cls && d.num ? `${d.grade}${p2(d.cls)}${p2(d.num)}` : "");
+  // 기기대장에는 이름·구글 계정을 저장하지 않음 (학번·시리얼만). 저장 직전에 항상 거름
+  const scrub = (d) => { const { name, account, ...rest } = d; return rest; };
+  // 이력·메모 글에서 알려진 이름 지우기
+  const stripNames = (text, names) => {
+    let t = String(text || "");
+    for (const n of names) if (n && t.includes(n)) t = t.split(n).join("");
+    return t.replace(/\s{2,}/g, " ").replace(/\(\s*\)/g, "").trim();
+  };
   const keyOf = (s) => String(s || "").toLowerCase().replace(/[\s·.\-_()]/g, "");
   const STATE = { assigned: "배정", spare: "예비", repair: "수리 중", lost: "분실", retired: "반납·폐기" };
   const REQ = { pending: "검토 중", done: "처리 완료", rejected: "불가" };
@@ -27,15 +35,15 @@
     function seed() {
       const dev = (serial, o) => ({ id: serial, serial, type: "student", batch: "2025", history: [], ...o });
       const devices = [
-        dev("R54Y2DEMO01", { state: "assigned", grade: 1, cls: 1, num: 1, name: "홍길동", account: "25s001@" + D.domain, mgmtNo: "2025_B100000511_0001" }),
-        dev("R54Y2DEMO02", { state: "assigned", grade: 1, cls: 1, num: 2, name: "김철수", account: "25s002@" + D.domain, mgmtNo: "2025_B100000511_0002" }),
-        dev("R54Y2DEMO03", { state: "assigned", grade: 1, cls: 2, num: 1, name: "이영희", account: "25s003@" + D.domain, mgmtNo: "2025_B100000511_0003" }),
-        dev("R54X9DEMO04", { state: "assigned", batch: "2024", grade: 2, cls: 3, num: 15, name: "박민수", account: "24s004@" + D.domain, mgmtNo: "2024_B100000511_0004" }),
+        dev("R54Y2DEMO01", { state: "assigned", grade: 1, cls: 1, num: 1, mgmtNo: "2025_B100000511_0001" }),
+        dev("R54Y2DEMO02", { state: "assigned", grade: 1, cls: 1, num: 2, mgmtNo: "2025_B100000511_0002" }),
+        dev("R54Y2DEMO03", { state: "assigned", grade: 1, cls: 2, num: 1, mgmtNo: "2025_B100000511_0003" }),
+        dev("R54X9DEMO04", { state: "assigned", batch: "2024", grade: 2, cls: 3, num: 15, mgmtNo: "2024_B100000511_0004" }),
         dev("R54Y2DEMO05", { state: "spare", spareNo: 1, mgmtNo: "2025_B100000511_0005",
-          history: [{ at: "2026-04-02", text: "회수: 1-3-07 (예시학생) 전출 → 예비 1" }] }),
+          history: [{ at: "2026-04-02", text: "회수: 10307 (전출) → 예비 1" }] }),
         dev("R54Y2DEMO06", { state: "spare", spareNo: 2, mgmtNo: "2025_B100000511_0006" }),
         dev("R54Y2DEMO07", { state: "repair", spareNo: 3, mgmtNo: "2025_B100000511_0007", note: "화면 깨짐 A/S 접수" }),
-        { id: "R54X9DEMOT1", serial: "R54X9DEMOT1", type: "teacher", state: "assigned", batch: "2024", tLabel: "2024D-1", name: "예시교사", account: "24t001@" + D.domain, mgmtNo: "2024_B100000511_0301", history: [] },
+        { id: "R54X9DEMOT1", serial: "R54X9DEMOT1", type: "teacher", state: "assigned", batch: "2024", tLabel: "2024D-1", mgmtNo: "2024_B100000511_0301", history: [] },
         { id: "R54X9DEMOT2", serial: "R54X9DEMOT2", type: "teacher", state: "spare", batch: "2024", tLabel: "2024D-2", mgmtNo: "2024_B100000511_0302", history: [] }
       ];
       return {
@@ -57,9 +65,9 @@
     const byNew = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
     return {
       async listDevices() { return Object.values(load().devices); },
-      async saveDevice(dev) { const d = load(); d.devices[dev.id] = dev; save(d); },
-      async saveDevices(list) { const d = load(); list.forEach((x) => (d.devices[x.id] = x)); save(d); },
-      async replaceDevices(list) { const d = load(); d.devices = Object.fromEntries(list.map((x) => [x.id, x])); save(d); },
+      async saveDevice(dev) { const d = load(); d.devices[dev.id] = scrub(dev); save(d); },
+      async saveDevices(list) { const d = load(); list.forEach((x) => (d.devices[x.id] = scrub(x))); save(d); },
+      async replaceDevices(list) { const d = load(); d.devices = Object.fromEntries(list.map((x) => [x.id, scrub(x)])); save(d); },
       async submitPw(r, lookup) {
         const d = load(); const id = uid();
         d.pw[id] = { ...r, id, status: "pending", adminNote: "", createdAt: Date.now() };
@@ -112,13 +120,13 @@
     const clean = (o) => JSON.parse(JSON.stringify(o)); // Firestore는 undefined 값을 받지 않음
     return {
       async listDevices() { return rows(await db.collection("devices").get()); },
-      async saveDevice(dev) { const { id, ...v } = dev; await db.collection("devices").doc(id).set(clean(v)); },
-      async saveDevices(list) { await chunked(list, (b, x) => { const { id, ...v } = x; b.set(db.collection("devices").doc(id), clean(v)); }); },
+      async saveDevice(dev) { const { id, ...v } = scrub(dev); await db.collection("devices").doc(id).set(clean(v)); },
+      async saveDevices(list) { await chunked(list, (b, x) => { const { id, ...v } = scrub(x); b.set(db.collection("devices").doc(id), clean(v)); }); },
       async replaceDevices(list) {
         const old = await db.collection("devices").get();
         const keep = new Set(list.map((x) => x.id));
         await chunked(old.docs.filter((x) => !keep.has(x.id)), (b, x) => b.delete(x.ref));
-        await chunked(list, (b, x) => { const { id, ...v } = x; b.set(db.collection("devices").doc(id), clean(v)); });
+        await chunked(list, (b, x) => { const { id, ...v } = scrub(x); b.set(db.collection("devices").doc(id), clean(v)); });
       },
       submitPw: (r, lookup) => submit("pwRequests", r, "구글 계정 비밀번호 재설정", "pw", lookup),
       async listPw() { return rows(await db.collection("pwRequests").get()).sort(byNew); },
@@ -319,16 +327,17 @@
             <select id="fType"><option value="student">학생용</option><option value="teacher">교사용</option><option value="">전체</option></select>
             <select id="fState"><option value="">상태 전체</option>${Object.entries(STATE).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
             <select id="fGrade"><option value="">학년 전체</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option></select>
-            <input id="fQ" placeholder="학번·이름·시리얼·계정 검색" style="width:220px">
+            <input id="fQ" placeholder="학번·시리얼·관리번호 검색" style="width:220px">
           </div>
           <div class="actions">
             <button class="btn sm" id="addTransfer">＋ 전입생 배정</button>
-            <label class="btn ghost sm" title="구글 워크스페이스 진급 CSV(이메일·새 학번)로 기기대장 학번을 한꺼번에 바꿉니다">진급 반영 (구글 진급 CSV)<input type="file" accept=".csv" hidden id="promoteCsv"></label>
             <button class="btn ghost sm" id="exportLedger">기기대장 엑셀로 내려받기</button>
             <label class="btn ghost sm">기기대장 엑셀 가져오기<input type="file" accept=".xlsx" hidden id="importLedger"></label>
           </div>
         </div>
-        <p class="muted small">회수(전출·자퇴·졸업)하면 그 기기는 자동으로 예비기기가 되고, 예비기기를 전입생에게 배정할 수 있습니다. 바뀐 내용은 기기마다 이력으로 남습니다.</p>
+        <p class="muted small">회수(전출·자퇴·졸업)하면 그 기기는 자동으로 예비기기가 되고, 예비기기를 전입생에게 배정할 수 있습니다. 바뀐 내용은 기기마다 이력으로 남습니다.
+          개인정보 보호를 위해 <b>학번·시리얼만 저장</b>하고 이름·구글 계정은 저장하지 않습니다(이름은 학교 엑셀 기기대장에서 확인). 진급은 '진급 CSV' 탭의 [디벗 기기대장에도 반영]으로 바꿉니다.</p>
+        ${list.some((d) => d.name || d.account) ? `<p class="warn">⚠ 예전에 저장된 이름·계정이 ${list.filter((d) => d.name || d.account).length}대에 남아 있습니다. <button class="btn sm" id="scrubOld">지금 지우기</button></p>` : ""}
         <div id="devTable"></div>
       </div>`;
     const f = devFilter;
@@ -337,23 +346,23 @@
       const q = keyOf(f.q);
       const rows = list.filter((d) => (!f.type || (d.type || "student") === f.type) && (!f.state || d.state === f.state)
           && (!f.grade || String(d.grade) === f.grade)
-          && (!q || keyOf([sidOf(d), d.name, d.serial, d.account, d.mgmtNo, d.tLabel, d.spareNo ? "예비" + d.spareNo : ""].join(" ")).includes(q)))
+          && (!q || keyOf([sidOf(d), d.serial, d.mgmtNo, d.tLabel, d.spareNo ? "예비" + d.spareNo : ""].join(" ")).includes(q)))
         .sort((a, b) => (a.state === "assigned" ? 0 : 1) - (b.state === "assigned" ? 0 : 1)
           || sidOf(a).localeCompare(sidOf(b)) || (a.spareNo || 999) - (b.spareNo || 999) || String(a.tLabel || a.serial).localeCompare(String(b.tLabel || b.serial), "ko", { numeric: true }));
       $("#devTable").innerHTML = `<p class="muted small">${rows.length}대</p><div class="table-wrap" style="max-height:560px;overflow:auto"><table class="mini dev">
-        <tr><th>상태</th><th>학번·구분</th><th>이름</th><th>시리얼</th><th>관리번호</th><th>구글 계정</th><th>보급</th><th></th></tr>
+        <tr><th>상태</th><th>학번·구분</th><th>시리얼</th><th>관리번호</th><th>보급</th><th></th></tr>
         ${rows.map((d) => `<tr>
           <td><span class="badge dev-${d.state}">${STATE[d.state] || d.state}</span></td>
-          <td><b>${esc(devLabel(d))}</b></td><td>${esc(d.name || "")}</td><td class="mono">${esc(d.serial || "(없음)")}</td>
-          <td class="mono small">${esc(d.mgmtNo || "")}</td><td class="small">${esc(d.account || "")}</td><td>${esc(d.batch || "")}</td>
+          <td><b>${esc(devLabel(d))}</b></td><td class="mono">${esc(d.serial || "(없음)")}</td>
+          <td class="mono small">${esc(d.mgmtNo || "")}</td><td>${esc(d.batch || "")}</td>
           <td class="actions nowrap">
             ${d.state === "assigned" ? `<button class="btn ghost sm" data-ret="${esc(d.id)}">회수</button>` : ""}
             ${d.state === "spare" ? `<button class="btn ok sm" data-asg="${esc(d.id)}">배정</button>` : ""}
             <button class="btn ghost sm" data-edit="${esc(d.id)}">상태·수정</button>
             ${(d.history || []).length ? `<button class="btn ghost sm" data-his="${esc(d.id)}">이력 ${d.history.length}</button>` : ""}
           </td></tr>
-          <tr class="detail" id="his-${esc(d.id)}" hidden><td colspan="8">${(d.history || []).slice().reverse().map((h) => `<div class="small">${esc(h.at)} · ${esc(h.text)}</div>`).join("")}${d.note ? `<div class="small"><b>메모:</b> ${esc(d.note)}</div>` : ""}</td></tr>`).join("")
-          || '<tr><td colspan="8" class="muted">해당하는 기기가 없습니다. 처음이라면 기존 기기대장 엑셀을 가져오세요.</td></tr>'}
+          <tr class="detail" id="his-${esc(d.id)}" hidden><td colspan="6">${(d.history || []).slice().reverse().map((h) => `<div class="small">${esc(h.at)} · ${esc(h.text)}</div>`).join("")}${d.note ? `<div class="small"><b>메모:</b> ${esc(d.note)}</div>` : ""}</td></tr>`).join("")
+          || '<tr><td colspan="6" class="muted">해당하는 기기가 없습니다. 처음이라면 기존 기기대장 엑셀을 가져오세요.</td></tr>'}
       </table></div>`;
       bindRows();
     };
@@ -364,16 +373,15 @@
 
     const assignDialog = async (dev) => {
       const v = await dialog(`${devLabel(dev)} (${dev.serial || "시리얼 없음"}) 배정`, `
-        <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" required placeholder="예) 10325"></label><label>이름<input name="name" required maxlength="20"></label></div>
-        <div class="row"><label>구글 계정 (선택)<input name="account" placeholder="예) 26s123@${esc(D.domain)}"></label></div>
-        <div class="row"><label>사유<select name="why"><option>전입</option><option>기기 교체</option><option>신규 배정</option><option>기타</option></select></label></div>`, "배정");
+        <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" required placeholder="예) 10325"></label>
+          <label>사유<select name="why"><option>전입</option><option>기기 교체</option><option>신규 배정</option><option>기타</option></select></label></div>
+        <p class="small muted" style="margin:4px 0 0">이름·구글 계정은 저장하지 않습니다. 학교 엑셀 기기대장에 적어 두세요.</p>`, "배정");
       if (!v) return;
       const p = window.parseSid(v.sid.trim()); if (!p) return alert("학번 5자리를 확인하세요.");
       const dup = list.find((d) => d.id !== dev.id && d.state === "assigned" && sidOf(d) === p.sid);
       if (dup && !confirm(`${p.sid} 학번에 이미 배정된 기기(${dup.serial})가 있습니다. 그래도 배정할까요?`)) return;
-      const acc = v.account.trim() ? (v.account.includes("@") ? v.account.trim() : `${v.account.trim()}@${D.domain}`) : "";
-      await commit({ ...dev, state: "assigned", grade: p.grade, cls: p.cls, num: p.num, name: v.name.trim(), account: acc, spareNo: null,
-        history: [...(dev.history || []), logEntry(`배정: ${devLabel(dev)} → ${p.sid} ${v.name.trim()} (${v.why})`)] });
+      await commit({ ...dev, state: "assigned", grade: p.grade, cls: p.cls, num: p.num, spareNo: null,
+        history: [...(dev.history || []), logEntry(`배정: ${devLabel(dev)} → ${p.sid} (${v.why})`)] });
     };
     const bindRows = () => {
       const m = byId();
@@ -382,15 +390,15 @@
       el.querySelectorAll("[data-ret]").forEach((b) => (b.onclick = async () => {
         const dev = m[b.dataset.ret];
         const no = dev.type === "teacher" ? null : nextSpare(dev.batch);
-        const v = await dialog(`${sidOf(dev) || dev.tLabel} ${dev.name || ""} 기기 회수`, `
+        const v = await dialog(`${sidOf(dev) || dev.tLabel} 기기 회수`, `
           <p class="small muted" style="margin:0 0 8px">시리얼 ${esc(dev.serial)} · 회수하면 ${no ? `<b>예비 ${no}번</b>` : "미배정"}으로 바뀝니다. 다음 사람에게 주기 전에 공장 초기화가 필요합니다(구글 계정 로그아웃).</p>
           <div class="row"><label>사유<select name="why"><option>전출</option><option>자퇴</option><option>졸업</option><option>기기 교체</option><option>기타</option></select></label>
             <label>예비 번호<input name="no" type="number" min="1" value="${no || ""}" ${no ? "" : "disabled"}></label></div>
-          <div class="row"><label>메모 (선택)<input name="note" placeholder="예) 펜 분실, 액정 정상"></label></div>`, "회수");
+          <div class="row"><label>메모 (선택, 이름은 적지 마세요)<input name="note" placeholder="예) 펜 분실, 액정 정상"></label></div>`, "회수");
         if (!v) return;
         const spareNo = dev.type === "teacher" ? null : +v.no || no;
-        await commit({ ...dev, state: "spare", spareNo, grade: null, cls: null, num: null, name: "", account: "", note: v.note.trim() || dev.note || "",
-          history: [...(dev.history || []), logEntry(`회수: ${sidOf(dev) || dev.tLabel} ${dev.name || ""} (${v.why}) → ${spareNo ? `예비 ${spareNo}` : "미배정"}${v.note.trim() ? ` · ${v.note.trim()}` : ""}`)] });
+        await commit({ ...dev, state: "spare", spareNo, grade: null, cls: null, num: null, note: v.note.trim() || dev.note || "",
+          history: [...(dev.history || []), logEntry(`회수: ${sidOf(dev) || dev.tLabel} (${v.why}) → ${spareNo ? `예비 ${spareNo}` : "미배정"}${v.note.trim() ? ` · ${v.note.trim()}` : ""}`)] });
       }));
       el.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = async () => {
         const dev = m[b.dataset.edit];
@@ -398,18 +406,17 @@
           <div class="row"><label>상태<select name="state">${Object.entries(STATE).map(([k, s]) => `<option value="${k}" ${k === dev.state ? "selected" : ""}>${s}</option>`).join("")}</select></label>
             <label>예비 번호<input name="spareNo" type="number" min="1" value="${esc(dev.spareNo || "")}"></label></div>
           <div class="row"><label>시리얼<input name="serial" value="${esc(dev.serial || "")}"></label><label>관리번호<input name="mgmtNo" value="${esc(dev.mgmtNo || "")}"></label></div>
-          <div class="row"><label>학번 (배정 시)<input name="sid" maxlength="5" value="${esc(sidOf(dev))}"></label><label>이름<input name="name" value="${esc(dev.name || "")}"></label></div>
-          <div class="row"><label>구글 계정<input name="account" value="${esc(dev.account || "")}"></label>${dev.type === "teacher" ? `<label>교사용 번호<input name="tLabel" value="${esc(dev.tLabel || "")}"></label>` : ""}</div>
-          <div class="row"><label>메모<input name="note" value="${esc(dev.note || "")}" placeholder="예) 액정 A/S 접수 11/8"></label></div>`, "저장");
+          <div class="row"><label>학번 (배정 시)<input name="sid" maxlength="5" value="${esc(sidOf(dev))}"></label>${dev.type === "teacher" ? `<label>교사용 번호<input name="tLabel" value="${esc(dev.tLabel || "")}"></label>` : ""}</div>
+          <div class="row"><label>메모 (이름은 적지 마세요)<input name="note" value="${esc(dev.note || "")}" placeholder="예) 액정 A/S 접수 11/8"></label></div>`, "저장");
         if (!v) return;
         const p = window.parseSid((v.sid || "").trim());
         if (v.state === "assigned" && dev.type !== "teacher" && !p) return alert("배정 상태는 학번 5자리가 필요합니다.");
         const nd = { ...dev, state: v.state, spareNo: v.spareNo ? +v.spareNo : null, serial: v.serial.trim(), mgmtNo: v.mgmtNo.trim(),
-          name: v.name.trim(), account: v.account.trim(), note: v.note.trim(), ...(v.tLabel !== undefined ? { tLabel: v.tLabel.trim() } : {}),
+          note: v.note.trim(), ...(v.tLabel !== undefined ? { tLabel: v.tLabel.trim() } : {}),
           ...(p ? { grade: p.grade, cls: p.cls, num: p.num } : { grade: null, cls: null, num: null }) };
         const changed = [];
         if (nd.state !== dev.state) changed.push(`상태 ${STATE[dev.state]}→${STATE[nd.state]}`);
-        if (sidOf(nd) !== sidOf(dev) || nd.name !== (dev.name || "")) changed.push(`사용자 ${sidOf(dev) || "-"} ${dev.name || ""}→${sidOf(nd) || "-"} ${nd.name}`);
+        if (sidOf(nd) !== sidOf(dev)) changed.push(`학번 ${sidOf(dev) || "-"}→${sidOf(nd) || "-"}`);
         if (nd.note !== (dev.note || "")) changed.push(`메모: ${nd.note || "(지움)"}`);
         nd.history = [...(dev.history || []), ...(changed.length ? [logEntry("수정: " + changed.join(", "))] : [])];
         await commit(nd);
@@ -427,23 +434,14 @@
       if (v) assignDialog(byId()[v.id]);
     };
     $("#exportLedger").onclick = (e) => busy(e.target, () => exportLedger(list));
-    $("#promoteCsv").onchange = async (e) => {
-      const file = e.target.files[0]; e.target.value = "";
-      if (!file) return;
-      try {
-        const r = promotePlan(await file.text(), list);
-        if (!r.changes.length) return alert(`바꿀 학번이 없습니다.\n\nCSV ${r.total}줄 · 기기대장에서 계정을 못 찾음 ${r.missing.length} · 새 학번 빈칸 ${r.blank.length}`);
-        const msg = `진급 반영 미리보기 ('${file.name}')\n\n학번이 바뀌는 기기: ${r.changes.length}대\n` +
-          r.changes.slice(0, 6).map((c) => `  ${c.from} → ${c.to}  ${c.dev.name}`).join("\n") + (r.changes.length > 6 ? `\n  …외 ${r.changes.length - 6}대` : "") +
-          (r.blank.length ? `\n\nCSV에 새 학번이 비어 있는 학생 ${r.blank.length}명 (전출·자퇴 확인 필요): ${r.blank.slice(0, 6).join(", ")}${r.blank.length > 6 ? " …" : ""}` : "") +
-          (r.missing.length ? `\n\n기기대장에 없는 계정 ${r.missing.length}개: ${r.missing.slice(0, 4).join(", ")}${r.missing.length > 4 ? " …" : ""}` : "") +
-          `\n\n바꿀까요?`;
-        if (!confirm(msg)) return;
-        await store().saveDevices(r.changes.map((c) => c.next));
-        alert(`${r.changes.length}대의 학번을 바꿨습니다.`);
-        adminDevices(el);
-      } catch (err) { console.error(err); alert("읽지 못했습니다: " + err.message); }
-    };
+    const so = $("#scrubOld");
+    if (so) so.onclick = () => busy(so, async () => {
+      const names = [...new Set(list.flatMap((d) => (d.name ? [d.name, d.name.replace(/\s/g, "")] : [])))].sort((a, b) => b.length - a.length);
+      if (!confirm(`저장된 기기 ${list.length}대에서 이름·구글 계정을 지우고, 이력 글에 남은 이름(${names.length}개)도 지웁니다. 되돌릴 수 없습니다. 진행할까요?`)) return;
+      await store().saveDevices(list.map((d) => ({ ...d, history: (d.history || []).map((h) => ({ ...h, text: stripNames(h.text, names) })).filter((h) => h.text) })));
+      alert("지웠습니다. 다른 이름이 이력에 남아 있을 수 있으니, 가장 확실한 방법은 기기대장 엑셀을 한 번 더 가져오는 것입니다.");
+      adminDevices(el);
+    });
     $("#importLedger").onchange = async (e) => {
       const file = e.target.files[0]; e.target.value = "";
       if (!file) return;
@@ -476,30 +474,6 @@
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows.filter((r) => r.some((c) => c.trim()));
   }
-  function promotePlan(text, list) {
-    const rows = parseCsv(text);
-    if (!rows.length) throw new Error("빈 파일입니다.");
-    const h = rows[0].map((x) => x.trim());
-    const ci = (re) => h.findIndex((x) => re.test(x));
-    const cEmail = ci(/^Email Address/i), cLast = ci(/^Last Name/i), cNew = ci(/^New Primary Email/i);
-    if (cEmail < 0 || cLast < 0) throw new Error("'Email Address'와 'Last Name' 열이 있는 구글 CSV가 아닙니다.");
-    const byAcc = {};
-    list.filter((d) => d.type !== "teacher" && d.state === "assigned" && d.account).forEach((d) => (byAcc[d.account.toLowerCase()] = d));
-    const changes = [], missing = [], blank = [];
-    rows.slice(1).forEach((r) => {
-      const email = (r[cEmail] || "").trim().toLowerCase(), sid = (r[cLast] || "").trim();
-      if (!email) return;
-      const dev = byAcc[email];
-      if (!window.parseSid(sid)) { blank.push(email.split("@")[0]); return; }
-      if (!dev) { missing.push(email.split("@")[0]); return; }
-      const p = window.parseSid(sid), from = sidOf(dev);
-      const newAcc = cNew >= 0 && (r[cNew] || "").includes("@") ? r[cNew].trim() : dev.account;
-      if (from === p.sid && newAcc === dev.account) return;
-      changes.push({ dev, from, to: p.sid, next: { ...dev, grade: p.grade, cls: p.cls, num: p.num, account: newAcc,
-        history: [...(dev.history || []), logEntry(`진급: ${from} → ${p.sid}${newAcc !== dev.account ? ` (계정 ${newAcc})` : ""}`)] } });
-    });
-    return { changes, missing, blank, total: rows.length - 1 };
-  }
   // 진급 정보(이전 학번 → 새 학번)로 기기대장 학번 바꾸기. 구글 계정이 대장에 없어도 학번으로 찾음
   function promoteBySid(pairs, list) {
     const bySid = {};
@@ -525,7 +499,7 @@
     const wb = new window.ExcelJS.Workbook();
     await wb.xlsx.load(await file.arrayBuffer());
     const T = (c) => window.Forms.cellText(c && c.value);
-    const devs = new Map(), notes = [];
+    const devs = new Map(), notes = [], names = new Set(); // names: 이력·메모에서 지울 이름 (저장 안 함)
     const get = (id, base) => { if (!devs.has(id)) devs.set(id, { id, history: [], ...base }); return devs.get(id); };
     const RANK = { assigned: 3, spare: 2, history: 1 };
     for (const ws of wb.worksheets) {
@@ -544,6 +518,7 @@
         const v = (c) => (c ? T(row.getCell(c)) : "");
         const serial = v(cSerial).replace(/\s/g, ""), name = v(cName);
         let account = v(cAcc);
+        if (name && !/^(학생용|교사용)?\s*예비/.test(name)) { names.add(name); names.add(name.replace(/\s/g, "")); }
         if (isT) {
           const tLabel = v(col("관리번호", 0)), mgmtNo = v(col("관리번호", 1)) || "";
           if (!serial && !name) return;
@@ -590,6 +565,12 @@
       if (d.type === "student" && d.state === "spare" && !d.spareNo) notes.push(`시리얼 ${d.serial}: ${(d.history[d.history.length - 1] || {}).text || "자퇴·전학 기록"} — 예비 번호가 없음 (예비로 등록)`);
       delete d.rank;
     }
+    // 이름·계정은 저장하지 않음: 이력 글에서도 이름을 지움 (긴 이름부터)
+    const nameList = [...names].sort((a, b) => b.length - a.length);
+    for (const d of devs.values()) {
+      d.history = d.history.map((h) => ({ ...h, text: stripNames(h.text, nameList) })).filter((h) => h.text);
+      delete d.name; delete d.account;
+    }
     // 같은 보급 연도 안에서 예비 번호가 겹치는지
     const seen = {};
     for (const d of devs.values()) if (d.type === "student" && d.state === "spare" && d.spareNo) {
@@ -621,14 +602,14 @@
     const ws = wb.addWorksheet("학생용");
     ws.addRow(head);
     let i = 1;
-    assigned.forEach((d) => ws.addRow([i++, ...base, d.serial, d.grade, d.cls, d.num, d.name, d.mgmtNo, d.account, STATE[d.state], d.note || "", d.batch || ""]));
+    assigned.forEach((d) => ws.addRow([i++, ...base, d.serial, d.grade, d.cls, d.num, "", d.mgmtNo, "", STATE[d.state], d.note || "", d.batch || ""])); // 이름·계정은 사이트에 없음
     ws.addRow([]);
     others.forEach((d) => ws.addRow([i++, ...base, d.serial, "", "", d.spareNo || "", d.state === "spare" ? "학생용 예비기기" : "", d.mgmtNo, "", STATE[d.state], d.note || "", d.batch || ""]));
     style(ws, [6, 8, 8, 9, 8, 13, 9, 14, 6, 5, 6, 10, 23, 26, 8, 30, 6]);
     const wt = wb.addWorksheet("교사용");
     wt.addRow(["순번", "교육청", "지역", "학교급", "설립구분", "학교명", "OS종류", "시리얼번호", "교사용 번호", "이름", "관리번호", "구글 계정", "상태", "비고"]);
     list.filter((d) => d.type === "teacher").sort((a, b) => String(a.tLabel).localeCompare(String(b.tLabel), "ko", { numeric: true }))
-      .forEach((d, k) => wt.addRow([k + 1, ...base, d.serial, d.tLabel || "", d.name || "", d.mgmtNo || "", d.account || "", STATE[d.state], d.note || ""]));
+      .forEach((d, k) => wt.addRow([k + 1, ...base, d.serial, d.tLabel || "", "", d.mgmtNo || "", "", STATE[d.state], d.note || ""]));
     style(wt, [6, 8, 8, 9, 8, 13, 9, 14, 12, 10, 23, 26, 8, 30]);
     const wh = wb.addWorksheet("변경 이력");
     wh.addRow(["날짜", "시리얼번호", "관리번호", "내용"]);
@@ -644,13 +625,11 @@
     const pending = reqs.filter((r) => r.status === "pending"), done = reqs.filter((r) => r.status !== "pending");
     const card = (r) => {
       const dev = bySid[r.sid];
-      const mismatch = dev && dev.name && r.name && dev.name.replace(/\s/g, "") !== r.name.replace(/\s/g, "");
       return `<div class="card" data-card="${esc(r.id)}">
         <div class="actions" style="justify-content:space-between"><b>🔑 ${esc(r.sid)} ${esc(r.name)}</b><span class="badge ${r.status === "done" ? "approved" : r.status === "rejected" ? "rejected" : "pending"}">${REQ[r.status]}</span></div>
         <p class="muted small" style="margin:4px 0">신청 ${new Date(r.createdAt).toLocaleString("ko-KR")}${r.reason ? ` · ${esc(r.reason)}` : ""}</p>
-        ${dev ? `<p class="small" style="margin:4px 0">기기대장: <b>${esc(dev.name)}</b> · 디벗 시리얼 <span class="mono">${esc(dev.serial)}</span> · 관리번호 <span class="mono">${esc(dev.mgmtNo || "-")}</span> · 계정 <b>${esc(dev.account || "(대장에 없음)")}</b></p>`
+        ${dev ? `<p class="small" style="margin:4px 0">기기대장: ${esc(r.sid)} 디벗 시리얼 <span class="mono">${esc(dev.serial)}</span> · 관리번호 <span class="mono">${esc(dev.mgmtNo || "-")}</span> · 본인 여부는 학교 엑셀 기기대장의 이름과 비교하세요</p>`
           : `<p class="warn" style="margin:4px 0">⚠ 기기 현황에 ${esc(r.sid)} 학번으로 배정된 디벗이 없습니다. AMA에서 학생 기기를 직접 찾아야 합니다.</p>`}
-        ${mismatch ? `<p class="warn" style="margin:4px 0">⚠ 신청한 이름(${esc(r.name)})과 기기대장 이름(${esc(dev.name)})이 다릅니다. 본인 신청인지 확인하세요.</p>` : ""}
         ${r.status === "pending" ? `<div class="actions" style="margin-top:8px">
             <button class="btn sm" data-gen="${esc(r.id)}">임시 비밀번호 만들기</button>
             <button class="btn bad sm" data-rej="${esc(r.id)}">불가</button></div>
@@ -682,14 +661,14 @@
           <div class="pw-box"><span>임시 비밀번호</span><b class="mono">${esc(pw)}</b>
             <button type="button" class="btn ghost sm" data-cp="pw">복사</button><button type="button" class="btn ghost sm" data-re>다시 만들기</button></div>
           <ol class="small" style="padding-left:18px;margin:8px 0">
-            <li>${acc ? `<b>${esc(acc)}</b> <button type="button" class="btn ghost sm" data-cp="acc">계정 복사</button> — ` : ""}
-              <a href="https://admin.google.com/ac/users" target="_blank" rel="noopener">구글 관리 콘솔 열기 ↗</a>에서 비밀번호 재설정 (로그인 시 변경 요청 체크)</li>
+            <li>${acc ? `<b>${esc(acc)}</b> <button type="button" class="btn ghost sm" data-cp="acc">계정 복사</button> — ` : `학번 <b>${esc(r.sid)}</b> <button type="button" class="btn ghost sm" data-cp="sid">복사</button> — `}
+              <a href="https://admin.google.com/ac/users" target="_blank" rel="noopener">구글 관리 콘솔 열기 ↗</a>에서 ${acc ? "" : "이 학번으로 검색해 "}비밀번호 재설정 (로그인 시 변경 요청 체크)</li>
             <li><a href="https://mdm.sen.go.kr/" target="_blank" rel="noopener">AMA 열기 ↗</a> (학내망·EVPN)에서 시리얼 <b class="mono">${esc(dev ? dev.serial : "?")}</b> 기기에 메시지 보내기</li>
           </ol>
           <textarea readonly rows="4" class="pw-msg">${esc(msg)}</textarea>
           <div class="actions" style="margin-top:6px"><button type="button" class="btn ghost sm" data-cp="msg">안내문 복사</button>
             <span style="flex:1"></span><button type="button" class="btn ok sm" data-fin>처리 완료 (학생에게 표시)</button></div>`;
-        work.querySelectorAll("[data-cp]").forEach((c) => (c.onclick = () => copyText({ pw, acc, msg }[c.dataset.cp], c)));
+        work.querySelectorAll("[data-cp]").forEach((c) => (c.onclick = () => copyText({ pw, acc, msg, sid: r.sid }[c.dataset.cp], c)));
         work.querySelector("[data-re]").onclick = () => draw(tempPassword());
         work.querySelector("[data-fin]").onclick = (e) => {
           if (!confirm("구글 관리 콘솔 재설정과 AMA 메시지 전송을 마쳤나요?")) return;

@@ -76,8 +76,10 @@ service cloud.firestore {
 
     // ===== 디벗 =====
     // 기기대장 (학생 이름·시리얼·계정): 관리자만
+    // 디벗 기기대장: 학번·시리얼만. 이름·구글 계정은 저장할 수 없음
     match /devices/{id} {
-      allow read, write: if isAdmin();
+      allow read, delete: if isAdmin();
+      allow create, update: if isAdmin() && !request.resource.data.keys().hasAny(['name', 'account']);
     }
 
     function sidOk(d) {
