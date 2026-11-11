@@ -39,7 +39,7 @@
 
   // ---------- 라우터 ----------
   const routes = { "/": home, "/calendar": calendarView, "/apply": applyView, "/purchase": purchaseView,
-    "/status": statusView, "/hours": hoursView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q) };
+    "/status": statusView, "/hours": hoursView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q), "/course": () => window.Course.studentView(view) };
 
   async function render() {
     const [path, qs] = (location.hash.slice(1) || "/").split("?");
@@ -76,6 +76,7 @@
         ${tile("#/apply", "🧪", "실험실 사용 신청", "신청서·시약 조사서·계획서 작성, PDF 저장")}
         ${tile("#/purchase", "🛒", "물품 구입 신청", "신청서 작성 후 PDF·엑셀로 저장")}
         ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인 여부·구매 진행 상황 확인")}
+        ${tile("#/course", "🎓", "수강신청", "심화실험 캠프·이공계 진로특강 신청")}
         ${tile("#/hours", "⏱", "이수시간 조회", `학번으로 ${S.targetHours}시간 달성 현황 확인`)}
       </div>`;
   }
@@ -364,7 +365,7 @@
       });
       return;
     }
-    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리", dibut: "디벗 관리" };
+    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", course: "수강신청", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리", dibut: "디벗 관리" };
     const years = [0, 1, 2, 3, 4].map((i) => curYear() - i);
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
@@ -381,7 +382,7 @@
     window.AdminBadge.renderControl($("#badgeCtl"));
     $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
-    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
+    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, course: () => window.Course.admin($("#adminBody"), adminYear), hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
   }
 
   // 서명 미리보기 + '지도교사 확인' 체크 (체크해야 승인 버튼이 눌림)

@@ -74,6 +74,96 @@ service cloud.firestore {
       allow list, write: if isAdmin();
     }
 
+    // ===== 수강신청 (심화실험 캠프·이공계 진로특강) =====
+    // 학생 명단: '계정 아이디+이름' 해시 → 학번. 하나씩 조회만 공개(목록은 관리자만)
+    match /roster/{key} {
+      allow get: if true;
+      allow list, write: if isAdmin();
+    }
+    // PIN 초기화 횟수 (로그인 주소에 들어감)
+    match /resets/{key} {
+      allow get: if true;
+      allow list, write: if isAdmin();
+    }
+    function resetN(key) {
+      return exists(/databases/$(database)/documents/resets/$(key))
+        ? get(/databases/$(database)/documents/resets/$(key)).data.n : 0;
+    }
+    // 로그인한 학생: 명단 열쇠와 로그인 주소가 맞아야만 학번을 연결할 수 있음
+    match /students/{uid} {
+      allow get: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if isAdmin();
+      allow create, update: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['key','sid','name','at'])
+        && request.resource.data.key is string && request.resource.data.key.matches('^[0-9a-f]{40}$')
+        && request.auth.token.email == request.resource.data.key + '.' + string(resetN(request.resource.data.key)) + '@stu.yongsan-sci.invalid'
+        && get(/databases/$(database)/documents/roster/$(request.resource.data.key)).data.sid == request.resource.data.sid
+        && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() < 20;
+    }
+    function me() {
+      return get(/databases/$(database)/documents/students/$(request.auth.uid)).data;
+    }
+    function isStudent() {
+      return request.auth != null && exists(/databases/$(database)/documents/students/$(request.auth.uid));
+    }
+    function progOpen(pid) {
+      let p = get(/databases/$(database)/documents/programs/$(pid)).data;
+      return request.time >= p.openAt && request.time <= p.closeAt;
+    }
+    function enrollPath(c) {
+      return /databases/$(database)/documents/enroll/$(c.programId + '_' + c.slot + '_' + me().key);
+    }
+
+    // 행사: 누구나 보기, 관리자만 수정
+    match /programs/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    // 강좌: 누구나 보기(이름·학번 없음). 학생은 신청·취소할 때 순번(last, q)만 함께 바꿀 수 있음
+    match /courses/{id} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (isStudent()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last','q'])
+        && (
+          // 신청: 순번 +1, 목록 끝에 추가, 정원+예비 안, 같은 순번의 신청서가 함께 생김
+          (request.resource.data.last == resource.data.last + 1
+            && request.resource.data.q == resource.data.q.concat([request.resource.data.last])
+            && resource.data.q.size() < resource.data.cap + resource.data.wait
+            && getAfter(enrollPath(resource.data)).data.pos == request.resource.data.last
+            && getAfter(enrollPath(resource.data)).data.courseId == id)
+          ||
+          // 취소: 본인 신청서가 지워지면서 그 순번만 목록에서 빠짐
+          (request.resource.data.last == resource.data.last
+            && exists(enrollPath(resource.data))
+            && get(enrollPath(resource.data)).data.courseId == id
+            && !existsAfter(enrollPath(resource.data))
+            && request.resource.data.q == resource.data.q.removeAll([get(enrollPath(resource.data)).data.pos])
+            && request.resource.data.q.size() == resource.data.q.size() - 1)
+        ));
+    }
+    // 신청서: 관리자와 본인만 읽기. 문서ID = 행사ID_시간칸_학생열쇠 (같은 시간칸에 하나만)
+    match /enroll/{id} {
+      allow read: if isAdmin() || (isStudent() && (resource == null || resource.data.key == me().key));
+      allow update: if isAdmin();
+      // 취소할 때는 강좌 순번 목록에서도 함께 빠져야 함 (자리만 차지하는 유령 신청 방지)
+      allow delete: if isAdmin() || (isStudent() && resource.data.key == me().key && progOpen(resource.data.programId)
+        && !getAfter(/databases/$(database)/documents/courses/$(resource.data.courseId)).data.q.hasAny([resource.data.pos]));
+      allow create: if isAdmin() || (isStudent()
+        && request.resource.data.keys().hasOnly(['programId','courseId','slot','key','sid','name','pos','at','year'])
+        && request.resource.data.key == me().key
+        && request.resource.data.sid == me().sid
+        && request.resource.data.name == me().name
+        && id == request.resource.data.programId + '_' + request.resource.data.slot + '_' + me().key
+        && request.resource.data.at == request.time
+        && progOpen(request.resource.data.programId)
+        && request.resource.data.sid.matches('^[' + get(/databases/$(database)/documents/programs/$(request.resource.data.programId)).data.grades + '][0-9]{4}$')
+        && get(/databases/$(database)/documents/courses/$(request.resource.data.courseId)).data.programId == request.resource.data.programId
+        && get(/databases/$(database)/documents/courses/$(request.resource.data.courseId)).data.slot == request.resource.data.slot
+        && get(/databases/$(database)/documents/courses/$(request.resource.data.courseId)).data.year == request.resource.data.year
+        && getAfter(/databases/$(database)/documents/courses/$(request.resource.data.courseId)).data.last == request.resource.data.pos);
+    }
+
     // ===== 디벗 =====
     // 디벗 기기대장: 학번·시리얼만. 이름·구글 계정은 저장할 수 없음
     match /devices/{id} {

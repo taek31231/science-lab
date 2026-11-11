@@ -297,3 +297,20 @@ tr.bad-row td { background: #fef2f2; color: #b91c1c; }
 .sig-thumbs { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 4px 0 6px; }
 .sig-thumbs img { height: 34px; border: 1px solid #e5e7eb; border-radius: 4px; background: #fff; padding: 2px; vertical-align: middle; }
 .code { font-family: Consolas, monospace; background: #f3f4f6; padding: 2px 8px; border-radius: 6px; font-size: 16px; user-select: all; }
+
+/* ===== 수강신청 ===== */
+.my-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; margin: 8px 0 4px; }
+.chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; background: #e5e7eb; }
+.chip.ok { background: #d1fae5; color: #065f46; }
+.chip.wait { background: #fef3c7; color: #92400e; }
+.slot-head { margin: 18px 0 8px; font-weight: 700; border-left: 4px solid var(--primary); padding-left: 8px; }
+.course-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ccard { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px; background: #fff; }
+.ccard.mine { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.ccode { font-size: 16px; }
+.seat { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 4px; }
+.seat > div { height: 100%; background: var(--primary); }
+.okc { color: var(--ok); font-weight: 600; }
+tr.sel > td { background: #eef2ff; }
+details.card > summary { cursor: pointer; }
+details.card[open] > summary { margin-bottom: 10px; }
