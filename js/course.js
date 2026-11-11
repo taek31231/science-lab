@@ -800,7 +800,7 @@
         <h2>명단 등록 (직접 입력·엑셀 붙여넣기)</h2>
         <p class="muted small">한 줄에 한 명씩 <b>계정 아이디 · 이름 · 학번</b> 순서로 적거나, 엑셀에서 이 세 열을 복사해 붙여넣으세요. 띄어쓰기·탭·쉼표 모두 됩니다.
           <b>교사는 학번을 비우면</b> 시험용 번호(${TEST_SID})로 들어갑니다. 이미 있는 사람은 학번만 새로 바뀌고, 기존 PIN은 그대로입니다.</p>
-        <textarea name="lines" rows="6" required placeholder="24t053 임형택&#10;26001 김민준 10101&#10;26002 이서연 10102"></textarea>
+        <textarea name="lines" rows="6" required placeholder="교사아이디 홍길동&#10;학생아이디 홍길순 10101"></textarea>
         <p class="muted small" id="rsPrev"></p>
         <button class="btn">등록</button>
       </form>
