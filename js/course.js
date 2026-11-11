@@ -496,30 +496,76 @@
     return adminAttend(inner, p, courses, enroll, again);
   }
 
-  // ---------- 행사·강좌 개설 ----------
-  function adminSetup(el, year, programs, again) {
-    const p = programs.find((x) => x.id === selProg);
+  // ---------- 일정 캘린더 연동 ----------
+  // 강좌가 있는 날짜마다 캘린더에 '과학행사' 일정 하나 (문서ID: course_행사ID_날짜). 강좌를 바꾸면 다시 맞춤
+  const calPrefix = (pid) => `course_${pid}_`;
+  function timesOf(period) {
+    const m = String(period || "").match(/(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})/);
+    if (m) return [`${p2(m[1])}:${m[2]}`, `${p2(m[3])}:${m[4]}`];
+    const s = String(period || "").match(/(\d{1,2}):(\d{2})/);
+    return s ? [`${p2(s[1])}:${s[2]}`, ""] : ["", ""];
+  }
+  async function syncCalendar(p, courses) {
+    try {
+      courses = courses || (await store().listCourses(p.id));
+      const existing = (await window.Store.listEvents(window.yearRange(p.year))).filter((e) => String(e.id).startsWith(calPrefix(p.id)));
+      const byDate = {};
+      courses.forEach((c) => (byDate[c.date] ||= []).push(c));
+      const keep = new Set();
+      for (const [date, list] of Object.entries(byDate)) {
+        const id = calPrefix(p.id) + date; keep.add(id);
+        const ts = list.map((c) => timesOf(c.period));
+        const starts = ts.map((t) => t[0]).filter(Boolean).sort(), ends = ts.map((t) => t[1]).filter(Boolean).sort();
+        const old = existing.find((e) => e.id === id);
+        const what = p.kind === "lecture" ? list.map((c) => c.title).join(" / ") : [...new Set(list.sort((a, b) => a.slot.localeCompare(b.slot)).map((c) => c.code))].join("·");
+        await window.Store.saveEvent({ id, type: "event", title: p.title,
+          start: starts[0] ? `${date}T${starts[0]}` : date, end: starts[0] && ends.length ? `${date}T${ends[ends.length - 1]}` : "",
+          status: old && old.status ? old.status : "scheduled", note: `${what} · 신청은 '수강신청' 메뉴에서` });
+      }
+      for (const e of existing) if (!keep.has(e.id)) await window.Store.deleteEvent(e.id);
+    } catch (e) { console.warn("캘린더 연동 실패", e); }
+  }
+
+  // ---------- 행사·강좌 개설: 행사 목록 → 행사를 누르면 그 행사의 강좌 화면 ----------
+  let openProg = "";
+  async function adminSetup(el, year, programs, again) {
+    const p = programs.find((x) => x.id === openProg);
+    if (!p) {
+      openProg = "";
+      const counts = await Promise.all(programs.map((x) => store().listCourses(x.id).then((cs) => cs.length).catch(() => 0)));
+      el.innerHTML = `
+        <div class="card">
+          <div class="actions" style="justify-content:space-between"><h2 style="margin:0">${year}학년도 행사</h2><button class="btn sm" id="pNew">+ 새 행사</button></div>
+          <p class="muted small">행사(예: 심화실험 캠프 한 회차)를 만들고, 행사를 눌러 들어가 그 안에 강좌를 추가합니다. 강좌 날짜는 일정 캘린더에 자동으로 올라갑니다.</p>
+          <div class="table-wrap"><table><tr><th>행사</th><th>강좌</th><th>신청 기간</th><th>대상</th><th>상태</th></tr>
+          ${programs.map((x, i) => `<tr class="prog-row" data-open="${esc(x.id)}"><td><b>${esc(x.title)}</b><br><span class="muted small">${KIND[x.kind] || ""}</span></td>
+            <td>${counts[i]}개</td><td class="small">${fmtDT(x.openAt)} ~<br>${fmtDT(x.closeAt)}</td><td>${[...(x.grades || "")].join("·")}학년</td>
+            <td>${PHASE[phase(x)]} <span class="muted">›</span></td></tr>`).join("")
+            || '<tr><td colspan="5" class="muted">아직 행사가 없습니다. [+ 새 행사]로 만드세요.</td></tr>'}
+          </table></div>
+        </div>`;
+      el.querySelectorAll("[data-open]").forEach((r) => (r.onclick = () => { openProg = selProg = r.dataset.open; again(); }));
+      $("#pNew").onclick = () => programDialog({ year, kind: "camp", grades: "12" }, again);
+      return;
+    }
     el.innerHTML = `
       <div class="card">
-        <div class="actions" style="justify-content:space-between"><h2 style="margin:0">${year}학년도 행사</h2><button class="btn sm" id="pNew">+ 새 행사</button></div>
-        <div class="table-wrap"><table><tr><th>행사</th><th>신청 기간</th><th>대상</th><th>상태</th><th></th></tr>
-        ${programs.map((x) => `<tr class="${x.id === selProg ? "sel" : ""}"><td><b>${esc(x.title)}</b><br><span class="muted small">${KIND[x.kind] || ""} · 이수시간 활동명: ${esc(x.activity)}</span></td>
-          <td class="small">${fmtDT(x.openAt)} ~<br>${fmtDT(x.closeAt)}</td><td>${[...(x.grades || "")].join("·")}학년</td><td>${PHASE[phase(x)]}</td>
-          <td class="actions"><button class="btn ghost sm" data-pick="${esc(x.id)}">강좌 보기</button><button class="btn ghost sm" data-pedit="${esc(x.id)}">수정</button><button class="btn ghost sm del-t" data-pdel="${esc(x.id)}">삭제</button></td></tr>`).join("")
-          || '<tr><td colspan="5" class="muted">아직 행사가 없습니다. [+ 새 행사]로 만드세요.</td></tr>'}
-        </table></div>
-        <p class="muted small">추가 신청을 받을 때는 행사를 [수정]해서 신청 기간만 다시 열면 됩니다. 학생의 '내 신청 목록'이 그대로 이어지므로 추가인지 변경인지 헷갈리지 않습니다.</p>
+        <button class="btn ghost sm" id="pBack">← 행사 목록</button>
+        <div class="actions" style="justify-content:space-between;margin-top:10px">
+          <h2 style="margin:0">${esc(p.title)} <span class="badge ${phase(p) === "open" ? "approved" : phase(p) === "before" ? "pending" : "done"}">${PHASE[phase(p)]}</span></h2>
+          <div class="actions"><button class="btn ghost sm" id="pEdit">행사 수정</button><button class="btn ghost sm del-t" id="pDel">행사 삭제</button></div>
+        </div>
+        <p class="muted small" style="margin:6px 0 0">${KIND[p.kind] || ""} · 신청 기간 ${fmtDT(p.openAt)} ~ ${fmtDT(p.closeAt)} · 대상 ${[...(p.grades || "")].join("·")}학년 · 이수시간 활동명 '${esc(p.activity)}'<br>
+          추가 신청을 받을 때는 [행사 수정]에서 신청 기간만 다시 열면 됩니다. 학생의 '내 신청 목록'이 그대로 이어집니다.</p>
       </div>
       <div id="courseBox"></div>`;
-    el.querySelectorAll("[data-pick]").forEach((b) => (b.onclick = () => { selProg = b.dataset.pick; again(); }));
-    $("#pNew").onclick = () => programDialog({ year, kind: "camp", grades: "12" }, again);
-    el.querySelectorAll("[data-pedit]").forEach((b) => (b.onclick = () => programDialog(programs.find((x) => x.id === b.dataset.pedit), again)));
-    el.querySelectorAll("[data-pdel]").forEach((b) => (b.onclick = async () => {
-      const x = programs.find((y) => y.id === b.dataset.pdel);
-      if (prompt(`'${x.title}'과 그 강좌·신청 기록을 모두 삭제합니다. 되돌릴 수 없습니다.\n확인하려면 '삭제'를 입력하세요.`) !== "삭제") return;
-      await store().deleteProgram(x.id); again();
-    }));
-    if (p) drawCourses($("#courseBox"), p, again);
+    $("#pBack").onclick = () => { openProg = ""; again(); };
+    $("#pEdit").onclick = () => programDialog(p, again);
+    $("#pDel").onclick = async () => {
+      if (prompt(`'${p.title}'과 그 강좌·신청 기록을 모두 삭제합니다. 되돌릴 수 없습니다.\n확인하려면 '삭제'를 입력하세요.`) !== "삭제") return;
+      await store().deleteProgram(p.id); await syncCalendar(p, []); openProg = ""; again();
+    };
+    drawCourses($("#courseBox"), p, again);
   }
 
   async function programDialog(p, again) {
@@ -550,7 +596,9 @@
       const openAt = new Date(d.openAt).getTime(), closeAt = new Date(d.closeAt).getTime();
       if (!(closeAt > openAt)) return alert("마감이 시작보다 늦어야 합니다.");
       busy(f.querySelector("button:last-child"), async () => {
-        selProg = await store().saveProgram({ ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim(), printNote: d.printNote || "" });
+        const np = { ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim(), printNote: d.printNote || "" };
+        openProg = selProg = await store().saveProgram(np);
+        if (p.id) await syncCalendar({ ...np, id: p.id }); // 제목이 바뀌면 캘린더 일정 제목도
         back.remove(); again();
       });
     };
@@ -560,15 +608,15 @@
     const courses = (await store().listCourses(p.id)).sort((a, b) => (a.date + a.period + a.code).localeCompare(b.date + b.period + b.code));
     box.innerHTML = `
       <div class="card">
-        <h2>${esc(p.title)} · 강좌 ${courses.length}개</h2>
+        <div class="actions" style="justify-content:space-between"><h2 style="margin:0">강좌 ${courses.length}개</h2><div class="actions"><button class="btn sm" id="cAddBtn">+ 강좌 추가</button><button class="btn ghost sm" id="cBulkOpen">엑셀에서 붙여넣기</button></div></div>
         <div class="table-wrap"><table><tr><th>코드</th><th>날짜·교시</th><th>주제</th><th>강사·장소</th><th>정원/예비</th><th>시간</th><th>신청</th><th></th></tr>
         ${courses.map((c) => `<tr><td><b>${esc(c.code)}</b></td><td class="small">${esc(dayLabel(c.date))}<br>${esc(c.period)}</td><td>${esc(c.title)}<br><span class="muted small">이수시간: ${esc(activityOf(p, c))}</span></td>
           <td class="small">${esc(c.lecturer)}<br>${esc(c.place)}</td><td>${c.cap} / ${c.wait}</td><td>${c.hours}</td><td>${(c.q || []).length}</td>
           <td class="actions"><button class="btn ghost sm" data-cedit="${esc(c.id)}">수정</button><button class="btn ghost sm del-t" data-cdel="${esc(c.id)}">삭제</button></td></tr>`).join("")
-          || '<tr><td colspan="8" class="muted">강좌가 없습니다. 아래에서 추가하세요.</td></tr>'}
+          || '<tr><td colspan="8" class="muted">강좌가 없습니다. [+ 강좌 추가]를 누르세요.</td></tr>'}
         </table></div>
       </div>
-      <form class="card" id="cForm">
+      <form class="card" id="cForm" hidden>
         <h2 id="cTitle">강좌 추가</h2><input type="hidden" name="id">
         <div class="row"><label>강좌 코드<input name="code" required placeholder="예) 물리5 / A"></label>
           <label>날짜<input type="date" name="date" required></label>
@@ -580,9 +628,9 @@
           <label>인정 시간<input type="number" name="hours" step="0.5" min="0.5" value="${p.kind === "lecture" ? 2 : 3}" required></label></div>
         <div class="row"><label>이수시간 활동명 (비우면 자동: ${esc(p.kind === "camp" ? `${p.activity}(코드)` : `${p.activity}코드`)})<input name="activity"></label></div>
         <p class="muted small">같은 날짜·같은 교시(글자 그대로)인 강좌끼리는 학생이 하나만 신청할 수 있습니다. 1교시와 2교시는 따로 신청합니다.</p>
-        <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="cReset">새로 작성</button></div>
+        <div class="actions"><button class="btn">저장</button><button type="button" class="btn ghost" id="cReset">닫기</button></div>
       </form>
-      <div class="card">
+      <div class="card" id="cBulkBox" hidden>
         <h2>강좌 한꺼번에 추가 (엑셀에서 복사·붙여넣기)</h2>
         <p class="muted small">열 순서: <b>강좌코드 · 날짜 · 교시 · 주제 · 강사 · 장소 · 정원 · 예비 · 인정시간</b> (정원·예비·시간을 비우면 위 기본값). 날짜는 2026-10-24 또는 10.24 형식.</p>
         <textarea id="cBulk" rows="5" placeholder="물리5&#9;2026-10-24&#9;1교시(08:00~10:30)&#9;실험 주제&#9;강사 이름&#9;물리실&#9;20&#9;10&#9;3"></textarea>
@@ -599,20 +647,24 @@
         if (old && (old.q || []).length && old.slot !== c.slot) return alert("신청자가 있는 강좌는 날짜·교시를 바꿀 수 없습니다. 신청자를 먼저 정리하세요.");
         if (courses.some((x) => x.code === c.code && x.id !== d.id)) return alert("같은 강좌 코드가 이미 있습니다.");
         await store().saveCourse({ ...(old || {}), ...c, id: d.id || undefined });
+        await syncCalendar(p);
         drawCourses(box, p, again);
       });
     };
     $("#cReset", box).onclick = () => drawCourses(box, p, again);
+    $("#cAddBtn", box).onclick = () => { f.reset(); f.elements.id.value = ""; $("#cTitle", box).textContent = "강좌 추가"; f.hidden = false; $("#cBulkBox", box).hidden = true; f.scrollIntoView({ behavior: "smooth" }); };
+    $("#cBulkOpen", box).onclick = () => { $("#cBulkBox", box).hidden = false; f.hidden = true; $("#cBulkBox", box).scrollIntoView({ behavior: "smooth" }); };
     box.querySelectorAll("[data-cedit]").forEach((b) => (b.onclick = () => {
       const c = byId[b.dataset.cedit];
       for (const k of ["id", "code", "date", "period", "title", "lecturer", "place", "cap", "wait", "hours", "activity"]) f.elements[k].value = c[k] ?? "";
       $("#cTitle", box).textContent = `강좌 수정: ${c.code}`;
+      f.hidden = false;
       f.scrollIntoView({ behavior: "smooth" });
     }));
     box.querySelectorAll("[data-cdel]").forEach((b) => (b.onclick = async () => {
       const c = byId[b.dataset.cdel], n = (c.q || []).length;
       if (!confirm(`'${c.code}' 강좌를 삭제할까요?${n ? `\n신청한 학생 ${n}명의 신청도 함께 지워집니다.` : ""}`)) return;
-      await store().deleteCourse(c.id); drawCourses(box, p, again);
+      await store().deleteCourse(c.id); await syncCalendar(p); drawCourses(box, p, again);
     }));
     $("#cBulkBtn", box).onclick = (e) => busy(e.target, async () => {
       const y = String(p.year), list = [], bad = [];
@@ -629,6 +681,7 @@
       if (!list.length) return alert("추가할 줄이 없습니다. 열 순서를 확인하세요." + (bad.length ? `\n형식이 맞지 않는 줄: ${bad.join(", ")}` : ""));
       if (!confirm(`강좌 ${list.length - dup.length}개를 추가할까요?${dup.length ? `\n이미 있는 코드 ${dup.map((c) => c.code).join(", ")}는 건너뜁니다.` : ""}${bad.length ? `\n형식이 맞지 않아 건너뛰는 줄: ${bad.join(", ")}` : ""}`)) return;
       for (const c of list) if (!dup.includes(c)) await store().saveCourse(c);
+      await syncCalendar(p);
       drawCourses(box, p, again);
     });
   }

@@ -314,3 +314,5 @@ tr.bad-row td { background: #fef2f2; color: #b91c1c; }
 tr.sel > td { background: #eef2ff; }
 details.card > summary { cursor: pointer; }
 details.card[open] > summary { margin-bottom: 10px; }
+tr.prog-row { cursor: pointer; }
+tr.prog-row:hover > td { background: #eef2ff; }
