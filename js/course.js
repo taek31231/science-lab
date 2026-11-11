@@ -142,6 +142,7 @@
       async markHours(courseId, info) { const d = await load(); d.courses[courseId].hoursDone = info; save(d); },
       // 명단
       async replaceRoster(list) { const d = await load(); d.roster = Object.fromEntries(list.map((r) => [r.key, { sid: r.sid }])); save(d); },
+      async addRoster(key, sid) { const d = await load(); d.roster[key] = { sid }; save(d); },
       async rosterCount() { return Object.keys((await load()).roster).length; },
       async hasRoster(key) { return !!(await load()).roster[key]; },
       async resetPin(key) { const d = await load(); delete d.users[key]; save(d); },
@@ -256,6 +257,7 @@
         await chunked(old.docs.filter((x) => !keep.has(x.id)), (b, x) => b.delete(x.ref));
         await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), { sid: r.sid }));
       },
+      async addRoster(key, sid) { await db.collection("roster").doc(key).set({ sid }); },
       async rosterCount() { return (await db.collection("roster").get()).size; },
       async hasRoster(key) { return (await db.collection("roster").doc(key).get()).exists; },
       async resetPin(key) {
@@ -790,6 +792,14 @@
         <label class="btn ghost">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
         <p class="muted small" id="rsMsg">'신입생 계정 CSV'로 만든 일괄 등록 CSV(First Name·Last Name·Email)도 됩니다. 성(Last Name) 칸이 학번 5자리인 줄만 읽습니다.</p>
       </div>
+      <form class="card" id="rsAdd">
+        <h2>한 명 추가 (시험용 계정·전입생)</h2>
+        <p class="muted small">교직원 계정(예: 24t053)으로 직접 시험해 보거나, 명단을 다시 올리기 전에 전입생을 넣을 때 씁니다. 시험용 학번은 실제 학생과 겹치지 않게 <b>19999</b>처럼 없는 반·번호로 정하세요.
+          시험용 학번에 이수시간을 반영하면 그 학번 기록이 남습니다. 명단 CSV를 다시 올리면 여기서 추가한 계정은 지워집니다.</p>
+        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 24t053"></label><label>이름<input name="name" required autocomplete="off"></label>
+          <label>학번 5자리<input name="sid" required inputmode="numeric" maxlength="5" placeholder="예) 19999"></label></div>
+        <button class="btn">추가</button>
+      </form>
       <form class="card" id="rsReset">
         <h2>PIN 초기화</h2>
         <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
@@ -819,6 +829,18 @@
         if (!confirm(`학생 ${list.length}명 (1학년 ${g[0]} · 2학년 ${g[1]} · 3학년 ${g[2]})으로 명단을 바꿀까요?${skip.length ? `\n학번이 없는 ${skip.length}줄(교사 등)은 건너뜁니다.` : ""}${dupSid.length ? `\n⚠ 학번이 겹치는 계정: ${[...new Set(dupSid)].join(", ")}` : ""}\n이 파일에 없는 예전 명단은 지워집니다.`)) return;
         await store().replaceRoster(list);
         alert("명단을 저장했습니다.");
+        adminRoster(el);
+      });
+    };
+    $("#rsAdd").onsubmit = (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(e.target));
+      busy(e.target.querySelector("button"), async () => {
+        const p = window.parseSid(d.sid.trim());
+        if (!p) fail("학번은 5자리입니다 (예: 19999).");
+        if (!normAcct(d.acct) || !normName(d.name)) fail("계정 아이디와 이름을 입력하세요.");
+        await store().addRoster(await studentKey(d.acct, d.name), p.sid);
+        alert(`추가했습니다. 수강신청 화면에서 ${normAcct(d.acct)} / ${normName(d.name)}(으)로 로그인하면 학번 ${p.sid}로 신청됩니다.`);
         adminRoster(el);
       });
     };
