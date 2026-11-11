@@ -22,6 +22,7 @@
   }
   const fail = (msg) => { const e = new Error(msg); e.userMsg = msg; throw e; };
   const STU_DOMAIN = "stu.yongsan-sci.invalid"; // 로그인용 가짜 주소 (메일은 보내지 않음)
+  const TEST_SID = "19999"; // 교사·시험용 계정에 붙는 번호 (1학년 99반 99번: 실제 학생과 겹치지 않음)
   const KIND = { camp: "심화실험 캠프", lecture: "이공계 진로특강", other: "기타" };
 
   // ---------- 학생 열쇠 ----------
@@ -142,8 +143,13 @@
       async setAttend(ids, on) { const d = await load(); ids.forEach((id) => d.enroll[id] && (d.enroll[id].attend = on)); save(d); },
       async markHours(courseId, info) { const d = await load(); d.courses[courseId].hoursDone = info; save(d); },
       // 명단
-      async replaceRoster(list) { const d = await load(); d.roster = Object.fromEntries(list.map((r) => [r.key, { sid: r.sid }])); save(d); },
-      async addRoster(key, sid) { const d = await load(); d.roster[key] = { sid }; save(d); },
+      async replaceRoster(list) {
+        const d = await load(), kinds = new Set(list.map((r) => !!r.t));
+        for (const [k, v] of Object.entries(d.roster)) if (kinds.has(!!v.t)) delete d.roster[k];
+        for (const r of list) d.roster[r.key] = r.t ? { sid: r.sid, t: true } : { sid: r.sid };
+        save(d);
+      },
+      async addRoster(key, sid, t) { const d = await load(); d.roster[key] = t ? { sid, t: true } : { sid }; save(d); },
       async rosterCount() { return Object.keys((await load()).roster).length; },
       async hasRoster(key) { return !!(await load()).roster[key]; },
       async resetPin(key) { const d = await load(); delete d.users[key]; save(d); },
@@ -252,13 +258,14 @@
       },
       async setAttend(ids, on) { await chunked(ids, (b, id) => b.update(db.collection("enroll").doc(id), { attend: on })); },
       async markHours(courseId, info) { await db.collection("courses").doc(courseId).update({ hoursDone: info }); },
+      // 파일에 들어 있는 종류(학생/교사)만 바꿈. 학생 CSV만 올리면 교사 명단은 그대로
       async replaceRoster(list) {
         const old = await db.collection("roster").get();
-        const keep = new Set(list.map((r) => r.key));
-        await chunked(old.docs.filter((x) => !keep.has(x.id)), (b, x) => b.delete(x.ref));
-        await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), { sid: r.sid }));
+        const keep = new Set(list.map((r) => r.key)), kinds = new Set(list.map((r) => !!r.t));
+        await chunked(old.docs.filter((x) => !keep.has(x.id) && kinds.has(!!x.data().t)), (b, x) => b.delete(x.ref));
+        await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), r.t ? { sid: r.sid, t: true } : { sid: r.sid }));
       },
-      async addRoster(key, sid) { await db.collection("roster").doc(key).set({ sid }); },
+      async addRoster(key, sid, t) { await db.collection("roster").doc(key).set(t ? { sid, t: true } : { sid }); },
       async rosterCount() { return (await db.collection("roster").get()).size; },
       async hasRoster(key) { return (await db.collection("roster").doc(key).get()).exists; },
       async resetPin(key) {
@@ -785,13 +792,13 @@
   async function adminRoster(el) {
     const n = await store().rosterCount();
     el.innerHTML = `
-      <div class="card help small">학생이 수강신청에 로그인할 때 쓰는 명단입니다. 구글 관리 콘솔의 <b>사용자 다운로드 CSV</b>(학생 조직, 이름·성·이메일 열)를 고르면
+      <div class="card help small">학생이 수강신청에 로그인할 때 쓰는 명단입니다. 구글 관리 콘솔의 <b>사용자 다운로드 CSV</b>(학생·교사 조직, 이름·성·이메일 열)를 고르면
         <b>'계정 아이디 + 이름'을 되돌릴 수 없는 해시로 바꾼 값과 학번만</b> 저장합니다. 계정 아이디·이름 자체는 사이트에 저장되지 않습니다.
         학년이 바뀌어 학번이 달라지면(진급 CSV를 올린 뒤) 새로 받은 CSV로 다시 올리세요. 학생이 정한 PIN은 그대로 유지됩니다.</div>
       <div class="card">
-        <h2>학생 명단 <span class="muted small">현재 ${n}명</span></h2>
+        <h2>학생·교사 명단 <span class="muted small">현재 ${n}개</span></h2>
         <label class="btn ghost">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
-        <p class="muted small" id="rsMsg">'신입생 계정 CSV'로 만든 일괄 등록 CSV(First Name·Last Name·Email)도 됩니다. 성(Last Name) 칸이 학번 5자리인 줄만 읽습니다.</p>
+        <p class="muted small" id="rsMsg">학생 조직과 교사 조직 CSV를 따로 올려도 됩니다(학생 CSV는 학생 명단만, 교사 CSV는 교사 명단만 바꿈). 성(Last Name) 칸이 학번 5자리면 학생, 아니면 교사로 읽습니다. 교사 계정은 시험용으로 들어가 신청 명단에 ${TEST_SID}로 보입니다.</p>
       </div>
       <form class="card" id="rsAdd">
         <h2>한 명 추가 (시험용 계정·전입생)</h2>
@@ -816,18 +823,26 @@
         const col = (re) => head.findIndex((h) => re.test(h));
         const iF = col(/^First Name/i), iL = col(/^Last Name/i), iE = col(/^Email( Address)?/i);
         if (iF < 0 || iL < 0 || iE < 0) fail("구글 사용자 CSV가 아닌 것 같습니다 ('First Name', 'Last Name', 'Email Address' 열이 필요).");
-        const seen = new Map(), list = [], skip = [];
-        for (const r of rows.slice(1)) {
-          const sid = String(r[iL] || "").trim(), acct = normAcct(r[iE]), name = normName(r[iF]);
-          if (!window.parseSid(sid) || !acct || !name) { skip.push(r[iE]); continue; }
+        const seen = new Set(), list = [];
+        let nStu = 0, nTch = 0;
+        const add = async (acct, name, sid, t) => {
           const key = await studentKey(acct, name);
-          if (seen.has(key)) continue;
-          seen.set(key, sid); list.push({ key, sid });
+          if (seen.has(key)) return false;
+          seen.add(key); list.push(t ? { key, sid, t: true } : { key, sid }); return true;
+        };
+        for (const r of rows.slice(1)) {
+          const last = String(r[iL] || "").trim(), first = String(r[iF] || "").trim(), acct = normAcct(r[iE]);
+          if (!acct || !(first || last)) continue;
+          if (window.parseSid(last)) { if (first && await add(acct, first, last, false)) nStu++; continue; }
+          // 교사 계정: 학번이 없으므로 시험용 번호. 이름이 성/이름으로 나뉘어 있어도 '성이름'·'이름'·'이름성' 모두로 로그인 가능
+          let ok = false;
+          for (const nm of new Set([last + first, first, first + last].filter((x) => normName(x)))) ok = (await add(acct, nm, TEST_SID, true)) || ok;
+          if (ok) nTch++;
         }
-        const sids = list.map((x) => x.sid), dupSid = sids.filter((s, i) => sids.indexOf(s) !== i);
+        const sids = list.filter((x) => !x.t).map((x) => x.sid), dupSid = sids.filter((s, i) => sids.indexOf(s) !== i);
         const g = [1, 2, 3].map((x) => sids.filter((s) => s[0] === String(x)).length);
-        if (!list.length) fail("학번(성 칸 5자리)이 있는 학생 줄이 없습니다.");
-        if (!confirm(`학생 ${list.length}명 (1학년 ${g[0]} · 2학년 ${g[1]} · 3학년 ${g[2]})으로 명단을 바꿀까요?${skip.length ? `\n학번이 없는 ${skip.length}줄(교사 등)은 건너뜁니다.` : ""}${dupSid.length ? `\n⚠ 학번이 겹치는 계정: ${[...new Set(dupSid)].join(", ")}` : ""}\n이 파일에 없는 예전 명단은 지워집니다.`)) return;
+        if (!list.length) fail("등록할 계정이 없습니다.");
+        if (!confirm(`명단을 바꿀까요?\n학생 ${nStu}명 (1학년 ${g[0]} · 2학년 ${g[1]} · 3학년 ${g[2]})${nTch ? `\n교사 ${nTch}명 (시험용: 신청 명단에 ${TEST_SID}로 보임)` : ""}${dupSid.length ? `\n⚠ 학번이 겹치는 계정: ${[...new Set(dupSid)].join(", ")}` : ""}\n${nStu && nTch ? "이 파일에 없는 예전 명단은 지워집니다." : nStu ? "예전 학생 명단은 이 파일로 바뀌고, 교사 명단은 그대로 둡니다." : "예전 교사 명단은 이 파일로 바뀌고, 학생 명단은 그대로 둡니다."}`)) return;
         await store().replaceRoster(list);
         alert("명단을 저장했습니다.");
         adminRoster(el);
@@ -837,10 +852,10 @@
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
       busy(e.target.querySelector("button"), async () => {
-        const test = !d.sid.trim(), p = window.parseSid(test ? "19999" : d.sid.trim());
+        const test = !d.sid.trim(), p = window.parseSid(test ? TEST_SID : d.sid.trim());
         if (!p) fail("전입생 학번은 5자리입니다. 시험용이면 비워 두세요.");
         if (!normAcct(d.acct) || !normName(d.name)) fail("계정 아이디와 이름을 입력하세요.");
-        await store().addRoster(await studentKey(d.acct, d.name), p.sid);
+        await store().addRoster(await studentKey(d.acct, d.name), p.sid, test);
         alert(`추가했습니다. 수강신청 화면에서 ${normAcct(d.acct)} / ${normName(d.name)} / PIN으로 로그인하면 됩니다.${test ? "\n(시험용이라 신청 명단에는 학번 19999로 보입니다. 1학년 대상 행사에서 시험하세요.)" : ""}`);
         adminRoster(el);
       });
