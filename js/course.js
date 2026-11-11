@@ -26,8 +26,9 @@
 
   // ---------- 학생 열쇠 ----------
   // 계정 아이디: 앞뒤 공백·@도메인 제거, 소문자.  이름: 공백 제거, 동명이인 표시(끝의 영문 A·B…) 제거
-  const normAcct = (s) => String(s || "").trim().toLowerCase().replace(/@.*$/, "").replace(/\s/g, "");
-  const normName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]+$/, "");
+  // (NFC: 맥·아이패드에서 한글 자모가 풀려 입력돼도 같은 글자로 맞춤)
+  const normAcct = (s) => String(s || "").normalize("NFC").trim().toLowerCase().replace(/@.*$/, "").replace(/\s/g, "");
+  const normName = (s) => String(s || "").normalize("NFC").replace(/\s/g, "").replace(/[A-Za-z]+$/, "");
   async function sha(text) {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
     return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
