@@ -290,7 +290,7 @@
   // =====================================================================
   let sub = "devices";
   async function admin(body) {
-    const subs = { devices: "기기 현황", pw: "비밀번호 요청", apps: "앱·사이트 신청", fresh: "신입생 계정 CSV", promote: "진급 CSV" };
+    const subs = { devices: "기기 현황", pw: "비밀번호 요청", apps: "앱·사이트 신청", fresh: "신입생 계정 CSV", promote: "진급 CSV", accounts: "구글 계정 명단" };
     body.innerHTML = `<div class="tabs subtabs">${Object.entries(subs).map(([k, v]) => `<button data-s="${k}" class="${k === sub ? "on" : ""}">${v}<span data-cnt="${k}"></span></button>`).join("")}</div><div id="dbBody"></div>`;
     body.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sub = b.dataset.s; admin(body); }));
     // 대기 건수 표시
@@ -300,7 +300,7 @@
       if (n2) body.querySelector('[data-cnt="apps"]').innerHTML = ` <b class="cnt">${n2}</b>`;
     }).catch(() => {});
     const el = $("#dbBody", body);
-    await ({ devices: adminDevices, pw: adminPw, apps: adminApps, fresh: adminFresh, promote: adminPromote })[sub](el);
+    await ({ devices: adminDevices, pw: adminPw, apps: adminApps, fresh: adminFresh, promote: adminPromote, accounts: (x) => window.Course.rosterPanel(x) })[sub](el);
   }
 
   // ---------------- 기기 현황 ----------------

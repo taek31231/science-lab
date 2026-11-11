@@ -475,11 +475,11 @@
   // =====================================================================
   let sub = "setup", selProg = "";
   async function admin(body, year) {
-    const subs = { setup: "행사·강좌 개설", status: "신청 현황·명단", attend: "출석 → 이수시간", roster: "학생 명단·PIN" };
+    const subs = { setup: "행사·강좌 개설", status: "신청 현황·명단", attend: "출석 → 이수시간", roster: "PIN 초기화" };
     body.innerHTML = `<div class="tabs subtabs">${Object.entries(subs).map(([k, v]) => `<button data-s="${k}" class="${k === sub ? "on" : ""}">${v}</button>`).join("")}</div><div id="csBody"></div>`;
     body.querySelectorAll("[data-s]").forEach((b) => (b.onclick = () => { sub = b.dataset.s; admin(body, year); }));
     const el = $("#csBody", body);
-    if (sub === "roster") return adminRoster(el);
+    if (sub === "roster") return pinPanel(el);
     const programs = await store().listPrograms(year);
     if (!programs.some((p) => p.id === selProg)) selProg = programs[0] ? programs[0].id : "";
     const again = () => admin(body, year);
@@ -908,31 +908,27 @@
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows.filter((r) => r.some((c) => c.trim()));
   }
-  async function adminRoster(el) {
+  // 디벗 관리 → '구글 계정 명단' 탭에서 씀 (수강신청 로그인 명단)
+  async function rosterPanel(el) {
     const n = await store().rosterCount();
     el.innerHTML = `
-      <div class="card help small">수강신청에 로그인할 수 있는 사람(학생·교사) 명단입니다. 여기 등록된 <b>계정 아이디 + 이름</b>으로만 로그인할 수 있습니다.
-        사이트에는 '계정 아이디 + 이름'을 되돌릴 수 없는 해시로 바꾼 값과 학번만 저장되고, 아이디·이름 자체는 남지 않습니다. 현재 등록 <b>${n}</b>건.</div>
-      <form class="card" id="rsAdd">
-        <h2>명단 등록 (직접 입력·엑셀 붙여넣기)</h2>
-        <p class="muted small">한 줄에 한 명씩 <b>계정 아이디 · 이름 · 학번</b> 순서로 적거나, 엑셀에서 이 세 열을 복사해 붙여넣으세요. 띄어쓰기·탭·쉼표 모두 됩니다.
-          <b>교사는 학번을 비우면</b> 시험용 번호(${TEST_SID})로 들어갑니다. 이미 있는 사람은 학번만 새로 바뀌고, 기존 PIN은 그대로입니다.</p>
-        <textarea name="lines" rows="6" required placeholder="계정 아이디 · 이름 · 학번 (한 줄에 한 명)"></textarea>
-        <p class="muted small" id="rsPrev"></p>
-        <button class="btn">등록</button>
-      </form>
+      <div class="card help small">학교 구글 계정 명단입니다. 학생·교사는 여기 등록된 <b>계정 아이디 + 이름</b>으로 수강신청에 로그인합니다.
+        사이트에는 '계정 아이디 + 이름'을 되돌릴 수 없는 해시로 바꾼 값과 학번만 저장되고, 아이디·이름 자체는 남지 않습니다. 현재 등록 <b>${n}</b>건.
+        학생 PIN 초기화는 관리자 → 수강신청 → 'PIN 초기화'에서 합니다.</div>
       <div class="card">
-        <h2>구글 사용자 CSV로 한꺼번에 바꾸기</h2>
-        <p class="muted small">학년이 바뀌었을 때처럼 전체를 새로 맞출 때 씁니다. 구글 관리 콘솔 → 사용자 → 조직 선택 → <b>사용자 다운로드</b>(CSV)로 받은 파일을 고르세요.
-          성(Last Name) 칸이 학번 5자리면 학생, 아니면 교사로 읽습니다. 학생 CSV는 학생 명단만, 교사 CSV는 교사 명단만 바꿉니다(파일에 없는 사람은 지워짐).</p>
-        <label class="btn ghost">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
+        <h2>구글 사용자 CSV 올리기</h2>
+        <p class="muted small">구글 관리 콘솔 → 디렉터리 → 사용자 → 조직 선택(학생 또는 교사) → <b>사용자 다운로드</b>(CSV)로 받은 파일을 고르세요. 학년이 바뀌어 진급 CSV를 올린 뒤에도 새로 받아 다시 올리면 됩니다.
+          성(Last Name) 칸이 학번 5자리면 학생, 아니면 교사로 읽습니다. 학생 CSV는 학생 명단만, 교사 CSV는 교사 명단만 바꿉니다(파일에 없는 사람은 지워지고, 남은 사람의 PIN은 그대로).</p>
+        <label class="btn">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
       </div>
-      <form class="card" id="rsReset">
-        <h2>PIN 초기화</h2>
-        <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
-        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off"></label><label>이름<input name="name" required autocomplete="off"></label></div>
-        <button class="btn">PIN 초기화</button>
+      <form class="card" id="rsAdd">
+        <h2>몇 명만 추가 (전입생·교사)</h2>
+        <p class="muted small">한 줄에 한 명씩 <b>계정 아이디 · 이름 · 학번</b> 순서로 적거나 엑셀에서 붙여넣으세요. 교사는 학번을 비우면 시험용 번호(${TEST_SID})로 들어갑니다. 이미 있는 사람은 학번만 바뀌고 PIN은 그대로입니다.</p>
+        <textarea name="lines" rows="4" required placeholder="계정 아이디 · 이름 · 학번 (한 줄에 한 명)"></textarea>
+        <p class="muted small" id="rsPrev"></p>
+        <button class="btn ghost">추가</button>
       </form>`;
+    const adminRoster = rosterPanel;
     $("#rsFile").onchange = (e) => {
       const file = e.target.files[0]; e.target.value = "";
       if (!file) return;
@@ -1001,6 +997,18 @@
         adminRoster(el);
       });
     };
+  }
+
+  // 관리자 → 수강신청 → 'PIN 초기화'
+  async function pinPanel(el) {
+    el.innerHTML = `
+      <form class="card" id="rsReset">
+        <h2>PIN 초기화</h2>
+        <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
+        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off"></label><label>이름<input name="name" required autocomplete="off"></label></div>
+        <button class="btn">PIN 초기화</button>
+      </form>
+      <p class="muted small">로그인 명단(구글 계정)은 관리자 → 디벗 관리 → <b>구글 계정 명단</b>에서 올립니다.</p>`;
     $("#rsReset").onsubmit = (e) => {
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
@@ -1015,5 +1023,5 @@
     };
   }
 
-  window.Course = { studentView, admin };
+  window.Course = { studentView, admin, rosterPanel };
 })();
