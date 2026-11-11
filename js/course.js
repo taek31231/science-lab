@@ -60,7 +60,7 @@
   //  데이터
   // =====================================================================
   function demoStore() {
-    const K = "sci-course-demo-v1", ME = "sci-course-me";
+    const K = "sci-course-demo-v2", ME = "sci-course-me";
     function seed() {
       const y = window.schoolYear(), now = Date.now();
       const day = (n) => window.localDate(new Date(now + n * 864e5));
@@ -69,19 +69,19 @@
         id, programId: extra.programId || pid, year: y, code, date, period, slot: slotOf(date, period), title, lecturer, place,
         cap: 20, wait: 10, hours: 3, last: 0, q: [], ...extra });
       const courses = [
-        c("c1", "물리5", day(10), "1교시(08:00~10:30)", "이중 무지개 만들기", "김태윤", "물리실"),
-        c("c2", "물리6", day(10), "2교시(10:40~13:10)", "이중 무지개 만들기", "김태윤", "물리실"),
-        c("c3", "화학5", day(10), "1교시(08:00~10:30)", "분광광도계를 이용한 평형상수 결정", "김현호", "화학실"),
-        c("c4", "화학6", day(10), "2교시(10:40~13:10)", "분광광도계를 이용한 평형상수 결정", "김현호", "화학실", { cap: 2, wait: 1 }),
-        c("c5", "생명7", day(24), "1교시(08:00~10:30)", "무척추동물의 구조와 기능", "이지선", "생명과학실"),
-        c("c6", "지구4", day(24), "2교시(10:40~13:10)", "아두이노 기상관측기", "이흥기", "AI실", { cap: 12, wait: 5 }),
-        c("l1", "C", day(14), "15:00", "인공지능 속 수학 - 수학적 최적화", "이병준 (가톨릭대학교)", "소강당(별관동 4층)", { programId: pid2, cap: 80, wait: 10, hours: 2 })
+        c("c1", "물리5", day(10), "1교시(08:00~10:30)", "빛의 굴절 실험", "강사A", "물리실"),
+        c("c2", "물리6", day(10), "2교시(10:40~13:10)", "빛의 굴절 실험", "강사A", "물리실"),
+        c("c3", "화학5", day(10), "1교시(08:00~10:30)", "산화환원 적정 실험", "강사B", "화학실"),
+        c("c4", "화학6", day(10), "2교시(10:40~13:10)", "산화환원 적정 실험", "강사B", "화학실", { cap: 2, wait: 1 }),
+        c("c5", "생명7", day(24), "1교시(08:00~10:30)", "효소 활성 측정", "강사C", "생명과학실"),
+        c("c6", "지구4", day(24), "2교시(10:40~13:10)", "기상 관측 장치 만들기", "강사D", "AI실", { cap: 12, wait: 5 }),
+        c("l1", "C", day(14), "15:00", "진로특강 예시 주제", "외부 강사", "소강당(별관동 4층)", { programId: pid2, cap: 80, wait: 10, hours: 2 })
       ];
       // 데모: 화학6은 이미 2명 신청(정원 2) → 다음 신청은 예비
       courses[3].last = 2; courses[3].q = [1, 2];
       const enroll = {
-        [`${pid}_${courses[3].slot}_demoA`]: { id: `${pid}_${courses[3].slot}_demoA`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoA", sid: "10208", name: "예시학생", pos: 1, at: now - 3600e3, year: y },
-        [`${pid}_${courses[3].slot}_demoB`]: { id: `${pid}_${courses[3].slot}_demoB`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoB", sid: "20811", name: "예시학생", pos: 2, at: now - 3000e3, year: y }
+        [`${pid}_${courses[3].slot}_demoA`]: { id: `${pid}_${courses[3].slot}_demoA`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoA", sid: "10199", name: "예시학생", pos: 1, at: now - 3600e3, year: y },
+        [`${pid}_${courses[3].slot}_demoB`]: { id: `${pid}_${courses[3].slot}_demoB`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoB", sid: "20199", name: "예시학생", pos: 2, at: now - 3000e3, year: y }
       };
       return {
         programs: {
@@ -97,7 +97,7 @@
       };
     }
     // 데모 학생 명단 (계정 아이디 / 이름 / 학번)
-    const DEMO_ROSTER = [["26001", "김민준", "10101"], ["26002", "이서연", "10102"], ["25s101", "박지호", "20315"]];
+    const DEMO_ROSTER = [["demo1", "홍길동", "10101"], ["demo2", "홍길순", "10102"], ["demo3", "고길동", "20315"]];
     let cache = null;
     async function load() {
       if (cache) return cache;
@@ -436,7 +436,7 @@
       <h1>수강신청 로그인</h1>
       <p class="lead">심화실험 캠프·이공계 진로특강 등 과학중점 행사 수강신청입니다. <b>학교 구글 계정 아이디</b>와 <b>이름</b>, 그리고 <b>PIN 4자리</b>로 로그인합니다.</p>
       <form class="card" id="csLogin" style="max-width:460px">
-        <div class="row"><label>학교 구글 계정 아이디 <span class="muted small">(@${esc(window.SITE.dibut.domain)} 앞부분만 적어도 됨)</span><input name="acct" required autocomplete="off" placeholder="예) 26001 또는 26001@${esc(window.SITE.dibut.domain)}" value="${esc(saved.acct || "")}"></label></div>
+        <div class="row"><label>학교 구글 계정 아이디 <span class="muted small">(@${esc(window.SITE.dibut.domain)} 앞부분만 적어도 됨)</span><input name="acct" required autocomplete="off" placeholder="예) 26○○○ 또는 26○○○@${esc(window.SITE.dibut.domain)}" value="${esc(saved.acct || "")}"></label></div>
         <div class="row"><label>이름<input name="name" required maxlength="20" autocomplete="off" value="${esc(saved.name || "")}"></label></div>
         <div class="row"><label>PIN (숫자 4자리)<input name="pin" type="password" inputmode="numeric" maxlength="4" required autocomplete="off"></label></div>
         <div class="row" id="pinAgain" hidden><label>PIN 한 번 더 (처음 로그인할 때만)<input name="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label></div>
@@ -568,7 +568,7 @@
           <label>날짜<input type="date" name="date" required></label>
           <label>교시·시간<input name="period" required placeholder="예) 1교시(08:00~10:30)"></label></div>
         <div class="row"><label>주제<input name="title" required></label></div>
-        <div class="row"><label>강사<input name="lecturer" placeholder="예) 김태윤"></label><label>장소<input name="place" placeholder="예) 물리실"></label></div>
+        <div class="row"><label>강사<input name="lecturer" placeholder="예) 강사 이름"></label><label>장소<input name="place" placeholder="예) 물리실"></label></div>
         <div class="row"><label>정원<input type="number" name="cap" min="1" value="${p.kind === "lecture" ? 80 : 20}" required></label>
           <label>예비 인원<input type="number" name="wait" min="0" value="10" required></label>
           <label>인정 시간<input type="number" name="hours" step="0.5" min="0.5" value="${p.kind === "lecture" ? 2 : 3}" required></label></div>
@@ -579,7 +579,7 @@
       <div class="card">
         <h2>강좌 한꺼번에 추가 (엑셀에서 복사·붙여넣기)</h2>
         <p class="muted small">열 순서: <b>강좌코드 · 날짜 · 교시 · 주제 · 강사 · 장소 · 정원 · 예비 · 인정시간</b> (정원·예비·시간을 비우면 위 기본값). 날짜는 2026-10-24 또는 10.24 형식.</p>
-        <textarea id="cBulk" rows="5" placeholder="물리5&#9;2026-10-24&#9;1교시(08:00~10:30)&#9;이중 무지개 만들기&#9;김태윤&#9;물리실&#9;20&#9;10&#9;3"></textarea>
+        <textarea id="cBulk" rows="5" placeholder="물리5&#9;2026-10-24&#9;1교시(08:00~10:30)&#9;실험 주제&#9;강사 이름&#9;물리실&#9;20&#9;10&#9;3"></textarea>
         <div class="actions" style="margin-top:8px"><button class="btn" id="cBulkBtn">추가하기</button><span class="muted small" id="cBulkMsg"></span></div>
       </div>`;
     const f = $("#cForm", box), byId = Object.fromEntries(courses.map((c) => [c.id, c]));
@@ -813,7 +813,7 @@
       <form class="card" id="rsReset">
         <h2>PIN 초기화</h2>
         <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
-        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 26001"></label><label>이름<input name="name" required autocomplete="off"></label></div>
+        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 26○○○"></label><label>이름<input name="name" required autocomplete="off"></label></div>
         <button class="btn">PIN 초기화</button>
       </form>`;
     $("#rsFile").onchange = (e) => {

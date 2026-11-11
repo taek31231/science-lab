@@ -878,7 +878,7 @@
   // ---------------- 진급 CSV (브라우저 안에서만 처리, 저장 안 함) ----------------
   // ① 구글 관리 콘솔 '사용자 다운로드' CSV (성=현재 학번) + ② 진급 정보(NEIS 일괄반편성 엑셀 또는 '이전학번 새학번' 목록)
   //   → 성(Last Name)=새 학번, 조직 경로=새 학년·반 으로 바꾼 '사용자 일괄 업데이트' CSV
-  const baseName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]$/, ""); // 동명이인 표시(김민준A) 떼기
+  const baseName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]$/, ""); // 동명이인 표시(홍길동A) 떼기
   async function promoFromXlsx(file) {
     if (!/\.xlsx$/i.test(file.name)) throw new Error("xlsx 파일만 읽을 수 있습니다. NEIS에서 받은 .xls 파일은 엑셀에서 '다른 이름으로 저장 → Excel 통합 문서(*.xlsx)'로 바꿔 주세요.");
     await window.Forms.loadExcel();
