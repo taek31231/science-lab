@@ -195,7 +195,7 @@
       if (!d.agree) miss.push("준수사항 서약 체크 (신청서 맨 아래)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       const badSid = (d.users || []).find((u) => u.sid && !window.parseSid(u.sid));
-      if (badSid) return alert(`학번 '${badSid.sid}'이(가) 올바르지 않습니다. 5자리로 입력하세요 (예: 20315).`);
+      if (badSid) return alert(`학번 '${badSid.sid}'이(가) 올바르지 않습니다. 5자리로 입력하세요.`);
       if (d.end <= d.start) return alert("종료 시각이 시작 시각보다 늦어야 합니다.");
       const days = Math.round((new Date(d.date) - new Date(today())) / 864e5);
       if (days < 7 && !confirm(`사용일까지 ${days}일 남았습니다. 서류는 7일 전까지 제출해야 합니다.\n그래도 제출할까요?`)) return;
@@ -270,7 +270,7 @@
       if (!data.sign?.teacher) miss.push("지도교사 서명 ((인) 칸을 눌러 서명)");
       if (!Forms.filledItems(data).length) miss.push("구입 품목 (한 줄 이상)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
-      if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요 (예: 20315).");
+      if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요.");
       const p = { ...data, items: Forms.filledItems(data), year: curYear() };
       busy(e.target, async () => {
         await Store.submitPurchase(p);
@@ -319,7 +319,7 @@
       <h1>과학·수학 이수시간 조회</h1>
       <p class="lead"><b>${curYear()}학년도</b>(${curYear()}.3.1 ~ ${curYear() + 1}.2월 말) 기록입니다. 이름 없이 학번(학년·반·번호 5자리)으로만 조회합니다. 연간 목표: ${S.targetHours}시간</p>
       <form class="card actions" id="hForm">
-        <input name="sid" placeholder="학번 5자리 (예: 20315)" pattern="[1-3][0-9]{4}" required value="${esc(q.get("sid") || "")}" style="flex:1;min-width:200px">
+        <input name="sid" placeholder="학번 5자리" pattern="[1-3][0-9]{4}" required value="${esc(q.get("sid") || "")}" style="flex:1;min-width:200px">
         <button class="btn">조회</button>
       </form>
       <div id="hResult"></div>`;
@@ -653,7 +653,7 @@
       const x = { row, cells: [T(sid), Forms.toDateStr(date) || T(date), T(activity), T(hours)] };
       if (/^예\)/.test(T(activity))) return null;
       const p = window.parseSid(T(sid).replace(/\D/g, "")), d = Forms.toDateStr(date), h = parseFloat(T(hours));
-      if (!p) x.msg = "학번은 5자리 (예: 20315)";
+      if (!p) x.msg = "학번은 5자리";
       else if (!d) x.msg = "날짜 형식 (예: 2026-11-20)";
       else if (!T(activity)) x.msg = "활동명이 비어 있음";
       else if (!(h > 0 && h <= 24)) x.msg = "인정 시간은 0보다 큰 숫자";
@@ -749,7 +749,7 @@
           <label>날짜<input type="date" name="date" required value="${today()}"></label>
           <label>인정 시간<input type="number" name="hours" step="0.5" min="0.5" value="2" required></label>
         </div>
-        <div class="row"><label>학번 목록 (줄바꿈·쉼표·공백으로 구분)<textarea name="sids" required placeholder="20315&#10;20316&#10;10101"></textarea></label></div>
+        <div class="row"><label>학번 목록 (줄바꿈·쉼표·공백으로 구분)<textarea name="sids" required placeholder="학번을 한 줄에 하나씩"></textarea></label></div>
         <p id="hrPreview" class="muted"></p>
         <button class="btn">입력하기</button>
       </form>

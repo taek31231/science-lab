@@ -16,7 +16,7 @@
 (function () {
   const isDemo = !window.FIREBASE_CONFIG.apiKey || /[?&]demo=1/.test(location.search);
 
-  // 학번 5자리: 학년(1) + 반(2) + 번호(2)  예) 20315 = 2학년 3반 15번
+  // 학번 5자리: 학년(1) + 반(2) + 번호(2)
   function parseSid(sid) {
     const s = String(sid).trim();
     if (!/^[1-3]\d{4}$/.test(s)) return null;
@@ -74,16 +74,16 @@
       const data = {
         requests: {
           demo1: { id: "demo1", year: schoolYear(d(9)), team: "케미스토리", date: d(9), start: "16:30", end: "18:00", lab: "화학실험실", purpose: "산화환원 적정 실험",
-            teacher: "김화학", users: [{ sid: "20315", name: "홍길동" }, { sid: "20316", name: "김철수" }, {}],
+            teacher: "", users: [{ sid: "20315", name: "" }, { sid: "20316", name: "" }, {}],
             materials: [{ name: "뷰렛", spec: "50mL", qty: "2" }, { name: "삼각플라스크", spec: "250mL", qty: "4" }],
             reagents: [{ name: "과망가니즈산 칼륨" }], plan: { title: "산화환원 적정", period: "8" }, agree: true,
             status: "pending", adminNote: "", createdAt: Date.now() },
           old1: { id: "old1", year: y - 1, team: "지난해 동아리", date: `${y - 1}-10-10`, start: "16:00", end: "17:00", lab: "생명과학실험실", purpose: "지난 학년도 예시",
-            teacher: "최생명", users: [{ sid: "10101", name: "예시학생" }], materials: [], reagents: [], plan: {}, agree: true,
+            teacher: "", users: [{ sid: "10101", name: "" }], materials: [], reagents: [], plan: {}, agree: true,
             status: "approved", adminNote: "", createdAt: Date.now() - 300 * 864e5 }
         },
         purchases: {
-          p1: { id: "p1", year: y, purpose: "드론 제작 및 비행 안정성 탐구", sid: "20101", name: "이영희", useDate: d(14), teacher: "박물리",
+          p1: { id: "p1", year: y, purpose: "드론 제작 및 비행 안정성 탐구", sid: "20101", name: "", useDate: d(14), teacher: "",
             team: "드론탐구반", status: "pending", adminNote: "", createdAt: Date.now(),
             items: [
               { name: "드론 Simonk 펌웨어 ESC 멀티변속기", spec: "40A", qty: "1", price: "14300", site: "11번가" },

@@ -48,7 +48,7 @@
       ];
       return {
         devices: Object.fromEntries(devices.map((d) => [d.id, d])),
-        pw: { pw1: { id: "pw1", sid: "10101", name: "홍길동", reason: "비밀번호를 잊어버렸어요", status: "pending", adminNote: "", createdAt: Date.now() - 3600e3 } },
+        pw: { pw1: { id: "pw1", sid: "10101", name: "", reason: "비밀번호를 잊어버렸어요", status: "pending", adminNote: "", createdAt: Date.now() - 3600e3 } },
         apps: {
           a1: { id: "a1", sid: "10102", kind: "site", title: "패들렛", url: "https://padlet.com", purpose: "국어 수업 모둠 활동", key: keyOf("패들렛"), status: "pending", adminNote: "", createdAt: Date.now() - 7200e3 },
           a2: { id: "a2", sid: "10201", kind: "site", title: "Padlet", url: "", purpose: "과학 탐구 발표", key: keyOf("Padlet"), status: "pending", adminNote: "", createdAt: Date.now() - 5000e3 }
@@ -200,7 +200,7 @@
       <div class="grid2">
         <form class="card" id="appForm">
           <h2>📱 앱·사이트 허용 신청</h2>
-          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="예) 20315" required></label>
+          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="5자리" required></label>
             <label>종류<select name="kind"><option value="app">앱 (Play 스토어)</option><option value="site">웹사이트 (예: 패들렛)</option></select></label></div>
           ${pinFields}
           <div class="row"><label>앱·사이트 이름<input name="title" maxlength="60" required placeholder="예) 패들렛"></label></div>
@@ -213,7 +213,7 @@
         <form class="card" id="pwForm">
           <h2>🔑 구글 계정 비밀번호 재설정</h2>
           <p class="muted small" style="margin-top:0">학교 구글 계정 비밀번호를 잊었을 때 신청하세요. 처리되면 <b>임시 비밀번호가 본인 디벗으로 메시지(알림)로 전송</b>됩니다. 디벗을 켜 두고 학교 와이파이에 연결해 두세요.</p>
-          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="예) 20315" required></label></div>
+          <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" placeholder="5자리" required></label></div>
           ${pinFields}
           <div class="row"><label>메모 (선택)<input name="reason" maxlength="200" placeholder="예) 비밀번호를 잊어버렸어요"></label></div>
           <button class="btn">신청하기</button>
@@ -223,7 +223,7 @@
     // 학번·이름·PIN 확인 → { sid, name, lookup }
     const checkForm = async (f) => {
       const p = window.parseSid(f.elements.sid.value.trim());
-      if (!p) { alert("학번은 5자리로 입력하세요 (예: 20315)."); return null; }
+      if (!p) { alert("학번은 5자리로 입력하세요."); return null; }
       const name = f.elements.name.value.replace(/\s/g, "");
       if (!name) { alert("이름을 입력하세요."); return null; }
       if (!pinOk(f.elements.pin.value)) { alert("조회용 PIN은 숫자 4자리로 정하세요."); return null; }
@@ -373,7 +373,7 @@
 
     const assignDialog = async (dev) => {
       const v = await dialog(`${devLabel(dev)} (${dev.serial || "시리얼 없음"}) 배정`, `
-        <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" required placeholder="예) 10325"></label>
+        <div class="row"><label>학번<input name="sid" inputmode="numeric" maxlength="5" required></label>
           <label>사유<select name="why"><option>전입</option><option>기기 교체</option><option>신규 배정</option><option>기타</option></select></label></div>
         <p class="small muted" style="margin:4px 0 0">이름·구글 계정은 저장하지 않습니다. 학교 엑셀 기기대장에 적어 두세요.</p>`, "배정");
       if (!v) return;
@@ -784,7 +784,7 @@
         <div class="card">
           <h2>① 명단 넣기</h2>
           <p class="muted small" style="margin-top:0">NEIS 반편성 엑셀에서 <b>학번·이름</b> 두 열을 복사해 붙여넣거나(학년·반·번호·이름도 가능), 엑셀 파일을 불러오세요.</p>
-          <textarea id="frText" rows="12" placeholder="10101	홍길동&#10;10102	김철수&#10;…"></textarea>
+          <textarea id="frText" rows="12" placeholder="학번 · 이름 (엑셀에서 두 열 복사해 붙여넣기)"></textarea>
           <div class="actions" style="margin-top:8px"><label class="btn ghost sm">엑셀 파일 불러오기<input type="file" accept=".xlsx" hidden id="frFile"></label><span class="muted small" id="frCount"></span></div>
         </div>
         <div class="card">
@@ -878,7 +878,7 @@
   // ---------------- 진급 CSV (브라우저 안에서만 처리, 저장 안 함) ----------------
   // ① 구글 관리 콘솔 '사용자 다운로드' CSV (성=현재 학번) + ② 진급 정보(NEIS 일괄반편성 엑셀 또는 '이전학번 새학번' 목록)
   //   → 성(Last Name)=새 학번, 조직 경로=새 학년·반 으로 바꾼 '사용자 일괄 업데이트' CSV
-  const baseName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]$/, ""); // 동명이인 표시(홍길동A) 떼기
+  const baseName = (s) => String(s || "").replace(/\s/g, "").replace(/[A-Za-z]$/, ""); // 이름 끝 동명이인 표시(영문 한 글자) 떼기
   async function promoFromXlsx(file) {
     if (!/\.xlsx$/i.test(file.name)) throw new Error("xlsx 파일만 읽을 수 있습니다. NEIS에서 받은 .xls 파일은 엑셀에서 '다른 이름으로 저장 → Excel 통합 문서(*.xlsx)'로 바꿔 주세요.");
     await window.Forms.loadExcel();
@@ -934,7 +934,7 @@
           <h2>② 진급 정보</h2>
           <label class="btn ghost sm">NEIS 일괄반편성 엑셀 고르기<input type="file" accept=".xlsx" hidden id="pmNeis"></label>
           <p class="muted small" style="margin:8px 0 4px">또는 '이전학번 새학번 (이름)'을 한 줄에 한 명씩 붙여넣기:</p>
-          <textarea id="pmText" rows="5" placeholder="11014	20906	홍길동&#10;11002	20702	김철수"></textarea>
+          <textarea id="pmText" rows="5" placeholder="이전 학번 · 새 학번 · 이름 (한 줄에 한 명)"></textarea>
           <p class="muted small" id="pmInfo"></p>
         </div>
       </div>

@@ -69,19 +69,19 @@
         id, programId: extra.programId || pid, year: y, code, date, period, slot: slotOf(date, period), title, lecturer, place,
         cap: 20, wait: 10, hours: 3, last: 0, q: [], ...extra });
       const courses = [
-        c("c1", "물리5", day(10), "1교시(08:00~10:30)", "빛의 굴절 실험", "강사A", "물리실"),
-        c("c2", "물리6", day(10), "2교시(10:40~13:10)", "빛의 굴절 실험", "강사A", "물리실"),
-        c("c3", "화학5", day(10), "1교시(08:00~10:30)", "산화환원 적정 실험", "강사B", "화학실"),
-        c("c4", "화학6", day(10), "2교시(10:40~13:10)", "산화환원 적정 실험", "강사B", "화학실", { cap: 2, wait: 1 }),
-        c("c5", "생명7", day(24), "1교시(08:00~10:30)", "효소 활성 측정", "강사C", "생명과학실"),
-        c("c6", "지구4", day(24), "2교시(10:40~13:10)", "기상 관측 장치 만들기", "강사D", "AI실", { cap: 12, wait: 5 }),
-        c("l1", "C", day(14), "15:00", "진로특강 예시 주제", "외부 강사", "소강당(별관동 4층)", { programId: pid2, cap: 80, wait: 10, hours: 2 })
+        c("c1", "물리5", day(10), "1교시(08:00~10:30)", "빛의 굴절 실험", "", "물리실"),
+        c("c2", "물리6", day(10), "2교시(10:40~13:10)", "빛의 굴절 실험", "", "물리실"),
+        c("c3", "화학5", day(10), "1교시(08:00~10:30)", "산화환원 적정 실험", "", "화학실"),
+        c("c4", "화학6", day(10), "2교시(10:40~13:10)", "산화환원 적정 실험", "", "화학실", { cap: 2, wait: 1 }),
+        c("c5", "생명7", day(24), "1교시(08:00~10:30)", "효소 활성 측정", "", "생명과학실"),
+        c("c6", "지구4", day(24), "2교시(10:40~13:10)", "기상 관측 장치 만들기", "", "AI실", { cap: 12, wait: 5 }),
+        c("l1", "C", day(14), "15:00", "진로특강 예시 주제", "", "소강당(별관동 4층)", { programId: pid2, cap: 80, wait: 10, hours: 2 })
       ];
       // 데모: 화학6은 이미 2명 신청(정원 2) → 다음 신청은 예비
       courses[3].last = 2; courses[3].q = [1, 2];
       const enroll = {
-        [`${pid}_${courses[3].slot}_demoA`]: { id: `${pid}_${courses[3].slot}_demoA`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoA", sid: "10199", name: "예시학생", pos: 1, at: now - 3600e3, year: y },
-        [`${pid}_${courses[3].slot}_demoB`]: { id: `${pid}_${courses[3].slot}_demoB`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoB", sid: "20199", name: "예시학생", pos: 2, at: now - 3000e3, year: y }
+        [`${pid}_${courses[3].slot}_demoA`]: { id: `${pid}_${courses[3].slot}_demoA`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoA", sid: "10105", name: "", pos: 1, at: now - 3600e3, year: y },
+        [`${pid}_${courses[3].slot}_demoB`]: { id: `${pid}_${courses[3].slot}_demoB`, programId: pid, courseId: "c4", slot: courses[3].slot, key: "demoB", sid: "20103", name: "", pos: 2, at: now - 3000e3, year: y }
       };
       return {
         programs: {
@@ -97,7 +97,7 @@
       };
     }
     // 데모 학생 명단 (계정 아이디 / 이름 / 학번)
-    const DEMO_ROSTER = [["demo1", "홍길동", "10101"], ["demo2", "홍길순", "10102"], ["demo3", "고길동", "20315"]];
+    const DEMO_ROSTER = [["demo", "데모", "10101"]];
     let cache = null;
     async function load() {
       if (cache) return cache;
@@ -152,6 +152,7 @@
       async addRoster(key, sid, t) { const d = await load(); d.roster[key] = t ? { sid, t: true } : { sid }; save(d); },
       async addRosterMany(list) { const d = await load(); for (const r of list) d.roster[r.key] = r.t ? { sid: r.sid, t: true } : { sid: r.sid }; save(d); },
       async rosterCount() { return Object.keys((await load()).roster).length; },
+      async listRosterSids() { return Object.values((await load()).roster).filter((r) => !r.t).map((r) => r.sid); },
       async hasRoster(key) { return !!(await load()).roster[key]; },
       async resetPin(key) { const d = await load(); delete d.users[key]; save(d); },
       // 학생 로그인
@@ -269,6 +270,7 @@
       async addRoster(key, sid, t) { await db.collection("roster").doc(key).set(t ? { sid, t: true } : { sid }); },
       async addRosterMany(list) { await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), r.t ? { sid: r.sid, t: true } : { sid: r.sid })); },
       async rosterCount() { return (await db.collection("roster").get()).size; },
+      async listRosterSids() { return (await db.collection("roster").get()).docs.map((x) => x.data()).filter((r) => !r.t).map((r) => r.sid); },
       async hasRoster(key) { return (await db.collection("roster").doc(key).get()).exists; },
       async resetPin(key) {
         const ref = db.collection("resets").doc(key), r = await ref.get();
@@ -436,7 +438,7 @@
       <h1>수강신청 로그인</h1>
       <p class="lead">심화실험 캠프·이공계 진로특강 등 과학중점 행사 수강신청입니다. <b>학교 구글 계정 아이디</b>와 <b>이름</b>, 그리고 <b>PIN 4자리</b>로 로그인합니다.</p>
       <form class="card" id="csLogin" style="max-width:460px">
-        <div class="row"><label>학교 구글 계정 아이디 <span class="muted small">(@${esc(window.SITE.dibut.domain)} 앞부분만 적어도 됨)</span><input name="acct" required autocomplete="off" placeholder="예) 26○○○ 또는 26○○○@${esc(window.SITE.dibut.domain)}" value="${esc(saved.acct || "")}"></label></div>
+        <div class="row"><label>학교 구글 계정 아이디 <span class="muted small">(@${esc(window.SITE.dibut.domain)} 앞부분만 적어도 됨)</span><input name="acct" required autocomplete="off" value="${esc(saved.acct || "")}"></label></div>
         <div class="row"><label>이름<input name="name" required maxlength="20" autocomplete="off" value="${esc(saved.name || "")}"></label></div>
         <div class="row"><label>PIN (숫자 4자리)<input name="pin" type="password" inputmode="numeric" maxlength="4" required autocomplete="off"></label></div>
         <div class="row" id="pinAgain" hidden><label>PIN 한 번 더 (처음 로그인할 때만)<input name="pin2" type="password" inputmode="numeric" maxlength="4" autocomplete="off"></label></div>
@@ -531,10 +533,14 @@
       <div class="row"><label>이수시간 활동명<input name="activity" required value="${esc(p.activity || "")}" placeholder="예) 심화실험 캠프 → '심화실험 캠프(물리5)'로 기록"></label></div>
       <div class="row"><label>신청 시작<input type="datetime-local" name="openAt" required value="${toLocalInput(p.openAt || now)}"></label>
         <label>신청 마감<input type="datetime-local" name="closeAt" required value="${toLocalInput(p.closeAt || now + 7 * 864e5)}"></label></div>
-      <div class="row"><label>안내 문구 (선택)<input name="note" value="${esc(p.note || "")}" placeholder="예) 불참 시 다음 캠프 신청이 제한될 수 있습니다."></label></div>
+      <div class="row"><label>학생 화면 안내 문구 (선택)<input name="note" value="${esc(p.note || "")}"></label></div>
+      <div class="row" data-lec><label>배포용 명단 아래 안내 (특강, 한 줄에 하나 · '신청 취소는 마감 시각까지' 줄은 자동)<textarea name="printNote" rows="5">${esc(p.printNote ?? `* 신청 후 강연에 불참시(또는 보고서 미제출 시) 페널티가 발생합니다.\n   (페널티: ${p.year}학년도 이공계 진로특강 참가자격 박탈)\n* 강연을 들은 후 정해진 기한까지 강연보고서를 제출\n  (강연보고서는 온라인 설문 조사로 대체)`)}</textarea></label></div>
       </div><div class="actions" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn ghost sm" data-x>취소</button><button class="btn sm">저장</button></div></form>`;
     document.body.appendChild(back);
     const f = back.querySelector("form");
+    const lecRow = f.querySelector("[data-lec]");
+    const showLec = () => (lecRow.hidden = f.elements.kind.value !== "lecture");
+    f.elements.kind.addEventListener("change", showLec); showLec();
     f.elements.kind.onchange = () => { if (!f.elements.activity.value) f.elements.activity.value = { camp: "심화실험 캠프", lecture: "이공계진로특강" }[f.elements.kind.value] || ""; };
     if (!p.id) f.elements.kind.onchange();
     back.querySelector("[data-x]").onclick = () => back.remove();
@@ -544,7 +550,7 @@
       const openAt = new Date(d.openAt).getTime(), closeAt = new Date(d.closeAt).getTime();
       if (!(closeAt > openAt)) return alert("마감이 시작보다 늦어야 합니다.");
       busy(f.querySelector("button:last-child"), async () => {
-        selProg = await store().saveProgram({ ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim() });
+        selProg = await store().saveProgram({ ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim(), printNote: d.printNote || "" });
         back.remove(); again();
       });
     };
@@ -638,7 +644,7 @@
       <div class="card">
         <div class="actions" style="justify-content:space-between">
           <div><b>${esc(p.title)}</b> · ${PHASE[phase(p)]} · 신청 학생 <b>${total}</b>명 · 신청 <b>${enroll.length}</b>건</div>
-          <div class="actions"><button class="btn ghost sm" id="prAtt">출석부 인쇄</button><button class="btn ghost sm" id="prCls">학급별 열람표 인쇄</button><button class="btn ghost sm" id="xlOut">엑셀 내려받기</button></div>
+          <div class="actions"><button class="btn ghost sm" id="prAtt">출석부 인쇄</button><button class="btn ghost sm" id="prCls">${p.kind === "lecture" ? "배포용 명단 인쇄" : "학급별 열람표 인쇄"}</button><button class="btn ghost sm" id="xlOut">엑셀 내려받기</button></div>
         </div>
         <p class="muted small">순위는 신청한 순서입니다. 확정자를 취소하면 예비 1번이 자동으로 확정됩니다. 정원을 늘리려면 '행사·강좌 개설'에서 강좌를 수정하세요.</p>
       </div>
@@ -657,55 +663,113 @@
       busy(b, async () => { await store().adminCancel(e); again(); });
     }));
     $("#prAtt").onclick = () => printAttendance(p, courses, enroll);
-    $("#prCls").onclick = () => printClasses(p, courses, enroll);
+    $("#prCls").onclick = (e) => (p.kind === "lecture" ? printLecture(p, courses, enroll) : busy(e.target, () => printClasses(p, courses, enroll)));
     $("#xlOut").onclick = (e) => busy(e.target, () => exportXlsx(p, courses, enroll));
   }
 
-  // 인쇄용 창 (브라우저 인쇄 → PDF로 저장 가능)
+  // 인쇄용 창 (브라우저 인쇄 → PDF로 저장 가능). 기존 엑셀 매크로 양식(출석부·학급확인·배포용)을 그대로 따름
   function printWindow(title, pages) {
     const w = window.open("", "_blank");
     if (!w) return alert("팝업이 막혀 있습니다. 주소창 오른쪽에서 팝업을 허용해 주세요.");
     w.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(title)}</title>
       <style>
-        body{font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:0;color:#111}
-        .page{padding:14mm 12mm;page-break-after:always} .page:last-child{page-break-after:auto}
-        h1{font-size:20px;text-align:center;margin:0 0 10px} .meta{font-size:13px;margin:0 0 10px;line-height:1.7}
-        table{width:100%;border-collapse:collapse;font-size:13px} th,td{border:1px solid #444;padding:5px 6px;text-align:center} th{background:#eee}
-        td.l{text-align:left} .w{color:#666} .bar{position:sticky;top:0;background:#fffbe6;padding:8px 12px;border-bottom:1px solid #ddd;font-size:13px}
-        @media print{.bar{display:none}.page{padding:8mm 6mm}} @page{size:A4;margin:8mm}
-      </style></head><body><div class="bar"><button onclick="print()">인쇄 / PDF로 저장</button> 인쇄 창에서 대상: 'PDF로 저장'을 고르면 PDF 파일이 됩니다.</div>${pages.join("")}</body></html>`);
+        body{font-family:"맑은 고딕","Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:0;color:#000}
+        .page{padding:10mm;page-break-after:always;box-sizing:border-box} .page:last-child{page-break-after:auto}
+        table{border-collapse:collapse;width:100%} td,th{border:1px solid #000;text-align:center;vertical-align:middle;padding:0 4px}
+        th{background:#d9e1f2;font-weight:700} .nb>tbody>tr>td{border:0} .b{font-weight:700}
+        .ttl{font-size:22px;font-weight:700;text-align:center;padding:6px 0 10px}
+        .att td,.att th{height:26px;font-size:14px} .att tr.hd td{border:0;text-align:left}
+        .safety{border:1px solid #000;margin-top:14px;padding:8px 10px;font-size:12px;line-height:1.6}
+        .cls td,.cls th{font-size:13px;height:21px} .cls .code{font-weight:700} .cls .res{font-size:12px}
+        .sum td,.sum th{font-size:13px;height:21px}
+        .dist td,.dist th{font-size:13px;height:24px} .dist .gap{border:0;width:6px;background:none}
+        .notes{margin-top:14px;font-size:14px;line-height:1.9}
+        .bar{position:sticky;top:0;background:#fffbe6;padding:8px 12px;border-bottom:1px solid #ddd;font-size:13px}
+        @media print{.bar{display:none}.page{padding:0}} @page{size:A4 portrait;margin:10mm}
+      </style></head><body><div class="bar"><button onclick="print()">인쇄 / PDF로 저장</button> 인쇄 창에서 대상을 'PDF로 저장'으로 고르면 PDF 파일이 됩니다.</div>${pages.join("")}</body></html>`);
     w.document.close();
   }
+  const periodShort = (s) => String(s || "").replace(/\(.*\)/, "").trim();
+  const SAFETY = ["실험실에서는 지도교사의 허락과 지시를 따라야 한다.", "실험실 내에서 잡담을 하거나 뛰는 등의 장난을 치지 않는다.", "실험실 내에서 음식물을 먹거나 음료수를 섭취하지 않는다.",
+    "유리 기구를 사용할 때는 깨지지 않게 조심한다.", "불이 잘 붙는 인화성 물질을 취급할 때는 열원을 멀리해야 한다.", "실험실에서는 실험복과 장갑을 착용하고, 필요에 따라서는 적절히 보안경과 마스크를 착용한다.",
+    "시약이 피부에 닿았을 경우 흐르는 물에 30초 이상 씻고, 지도교사에게 반드시 알린다.", "실험 전후 주변 정리정돈을 철저히 한다.", "(화학실의 경우) 실험대 상판 글라스스톤이 잘 깨지므로 충격에 주의한다. ※ 막자사발 등으로 충격 주는 행위 금지"];
+
+  // 출석부: 강좌마다 한 장 (확정자만, 정원만큼 칸). 연락처는 받지 않으므로 칸 없음
   function printAttendance(p, courses, enroll) {
     const pages = courses.map((c) => {
-      const list = rankedList(c, enroll), ok = list.filter((e) => e.r && e.r.ok), wait = list.filter((e) => e.r && !e.r.ok);
-      return `<div class="page"><h1>${esc(p.title)} 출석부</h1>
-        <div class="meta">수업명: <b>${esc(c.code)}</b> · ${esc(dayLabel(c.date))} ${esc(c.period)}<br>주제: ${esc(c.title)}<br>강사: ${esc(c.lecturer)} · 장소: ${esc(c.place)}<br>※ 출석: ○ &nbsp; 결석: / &nbsp; 지각: △ 로 표시</div>
-        <table><tr><th style="width:9%">연번</th><th style="width:16%">학번</th><th style="width:20%">이름</th><th style="width:18%">출석 확인</th><th>비고</th></tr>
-        ${ok.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e.sid)}</td><td>${esc(e.name)}</td><td></td><td></td></tr>`).join("")}
-        ${Array.from({ length: Math.max(0, 3) }, () => `<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>`).join("")}</table>
-        ${wait.length ? `<p class="meta w" style="margin-top:10px">예비: ${wait.map((e) => `${rankText(e.r)} ${esc(e.sid)} ${esc(e.name)}`).join(" · ")}</p>` : ""}</div>`;
+      const ok = rankedList(c, enroll).filter((e) => e.r && e.r.ok);
+      const rows = Math.max(c.cap, ok.length);
+      return `<div class="page"><div class="ttl">${esc(p.title)} 출석부</div>
+        <table class="att">
+          <colgroup><col style="width:11%"><col style="width:15%"><col style="width:17%"><col style="width:17%"><col style="width:40%"></colgroup>
+          <tr class="hd"><td class="b">수업명 :</td><td class="b">${esc(c.code)}</td><td colspan="2">${esc(dayLabel(c.date))} ${esc(periodShort(c.period))}</td><td><b>지도교사 :</b> ${esc(c.lecturer || "")}</td></tr>
+          <tr class="hd"><td class="b">주&nbsp;&nbsp;&nbsp;제 :</td><td colspan="3">${esc(c.title)}</td><td><b>수업장소 :</b> ${esc(c.place || "")}</td></tr>
+          <tr class="hd"><td colspan="3" class="b">▣ 신청자 명단</td><td colspan="2" style="text-align:right">※ 출석: •&nbsp;&nbsp; 결석: /&nbsp;&nbsp; 지각: Ø 로 표시</td></tr>
+          <tr><th>연번</th><th>학번</th><th>이름</th><th>출석 확인</th><th>비고</th></tr>
+          ${Array.from({ length: rows }, (_, i) => { const e = ok[i]; return `<tr><td>${i + 1}</td><td>${e ? esc(e.sid) : ""}</td><td>${e ? esc(e.name) : ""}</td><td></td><td></td></tr>`; }).join("")}
+        </table>
+        ${p.kind === "camp" ? `<div class="safety"><b>수업 전 실험실 안전 관련 안내 사항</b><br>${SAFETY.map((s, i) => `${i + 1}. ${esc(s)}`).join("<br>")}</div>` : ""}</div>`;
     });
     printWindow(`${p.title} 출석부`, pages);
   }
-  function printClasses(p, courses, enroll) {
-    const slots = [...new Map(courses.map((c) => [c.slot, c])).values()];
+
+  // 학급확인(학급별 신청 결과): 반 전체 학생 번호순, 학생마다 2줄(강좌코드 / 확정·예비), 오른쪽에 반 합계. 신청자가 있는 반만
+  async function printClasses(p, courses, enroll) {
+    const slots = [...new Map(courses.map((c) => [c.slot, c])).values()].sort((a, b) => a.slot.localeCompare(b.slot));
     const cById = Object.fromEntries(courses.map((c) => [c.id, c]));
     const bySid = {};
-    for (const e of enroll) (bySid[e.sid] ||= { sid: e.sid, name: e.name, by: {} }).by[e.slot] = e;
-    const classes = {};
-    for (const s of Object.values(bySid)) (classes[s.sid.slice(0, 3)] ||= []).push(s);
-    const pages = Object.keys(classes).sort().map((k) => {
-      const list = classes[k].sort((a, b) => a.sid.localeCompare(b.sid));
-      return `<div class="page"><h1>${esc(p.title)} 신청 결과 (${+k[0]}학년 ${+k.slice(1)}반)</h1>
-        <p class="meta">신청한 학생만 표시합니다. 확정된 강좌에만 참석하고, 예비는 자리가 나면 따로 연락합니다.</p>
-        <table><tr><th>번호</th><th>학번</th><th>이름</th>${slots.map((s) => `<th>${esc(dayLabel(s.date))}<br>${esc(s.period.replace(/\(.*\)/, ""))}</th>`).join("")}</tr>
-        ${list.map((s) => `<tr><td>${+s.sid.slice(3)}</td><td>${esc(s.sid)}</td><td>${esc(s.name)}</td>${slots.map((sl) => { const e = s.by[sl.slot]; if (!e) return "<td></td>"; const c = cById[e.courseId]; const r = rankOf(c, e.pos);
-          return `<td>${esc(c.code)}${r && !r.ok ? ` <span class="w">(${rankText(r)})</span>` : ""}</td>`; }).join("")}</tr>`).join("")}</table></div>`;
+    for (const e of enroll) (bySid[e.sid] ||= { name: e.name, by: {} }).by[e.slot] = e;
+    const roster = await store().listRosterSids().catch(() => []);
+    const classSids = {};
+    for (const s of [...roster, ...Object.keys(bySid)]) if (s !== TEST_SID && window.parseSid(s)) (classSids[s.slice(0, 3)] ||= new Set()).add(s);
+    const keys = Object.keys(classSids).filter((k) => [...classSids[k]].some((s) => bySid[s])).sort();
+    if (!keys.length) return alert("신청한 학생이 없습니다.");
+    const pages = keys.map((k) => {
+      const nos = [...classSids[k]].map((s) => +s.slice(3)), maxNo = Math.max(...nos.filter((n) => n <= 45), Math.min(45, Math.max(...nos))); // 학급 인원(최대 45번)
+      const counts = { ok: 0, wait: Array(10).fill(0) };
+      const body = Array.from({ length: maxNo }, (_, i) => {
+        const sid = k + p2(i + 1), st = bySid[sid];
+        const cells = slots.map((sl) => {
+          const e = st && st.by[sl.slot]; if (!e) return { code: "", res: "" };
+          const c = cById[e.courseId], r = rankOf(c, e.pos);
+          if (r && r.ok) counts.ok++; else if (r && r.n <= 10) counts.wait[r.n - 1]++;
+          return { code: c.code, res: rankText(r) };
+        });
+        return `<tr><td rowspan="2">${i + 1}</td><td rowspan="2">${classSids[k].has(sid) ? sid : ""}</td><td rowspan="2">${st ? esc(st.name) : ""}</td>${cells.map((x) => `<td class="code">${esc(x.code)}</td>`).join("")}</tr>
+          <tr>${cells.map((x) => `<td class="res">${esc(x.res)}</td>`).join("")}</tr>`;
+      }).join("");
+      const sumRows = [["확정", counts.ok], ...counts.wait.map((n, i) => [`예비${i + 1}`, n]), ["합계", counts.ok + counts.wait.reduce((a, b) => a + b, 0)]];
+      return `<div class="page"><div class="ttl">${esc(p.title)} 신청 결과 (${+k[0]}학년 ${+k.slice(1)}반)</div>
+        <table class="nb"><tr><td style="vertical-align:top;padding:0">
+          <table class="cls"><colgroup><col style="width:7%"><col style="width:10%"><col style="width:12%">${slots.map(() => "<col>").join("")}</colgroup>
+            <tr><th>번호</th><th>학번</th><th>이름</th>${slots.map((s) => `<th>${esc(dayLabel(s.date))} ${esc(periodShort(s.period))}</th>`).join("")}</tr>${body}</table>
+        </td><td style="vertical-align:top;width:120px;padding:0 0 0 10px">
+          <table class="sum">${sumRows.map(([a, b]) => `<tr><th>${a}</th><td>${b}</td></tr>`).join("")}</table>
+        </td></tr></table></div>`;
     });
-    if (!pages.length) return alert("신청한 학생이 없습니다.");
     printWindow(`${p.title} 학급별 신청 결과`, pages);
   }
+
+  // 이공계 진로특강 배포용: 강좌마다 한 장. 3단, 연번 1~정원 + 예비1~N, 각각 학번순
+  function printLecture(p, courses, enroll) {
+    const pages = courses.map((c) => {
+      const list = rankedList(c, enroll);
+      const ok = list.filter((e) => e.r && e.r.ok).sort((a, b) => a.sid.localeCompare(b.sid));
+      const wait = list.filter((e) => e.r && !e.r.ok).sort((a, b) => a.sid.localeCompare(b.sid));
+      const all = [...Array.from({ length: c.cap }, (_, i) => ({ no: i + 1, e: ok[i] })), ...Array.from({ length: c.wait }, (_, i) => ({ no: `예비${i + 1}`, e: wait[i] }))];
+      const per = Math.ceil(all.length / 3);
+      const cell = (x) => (x ? `<td>${x.no}</td><td>${x.e ? esc(x.e.sid) : ""}</td><td>${x.e ? esc(x.e.name) : ""}</td><td>${x.e ? "신청" : ""}</td>` : "<td></td><td></td><td></td><td></td>");
+      const cd = new Date(p.closeAt);
+      const notes = [`* 신청 취소는 ${dayLabel(window.localDate(cd))} ${p2(cd.getHours())}:${p2(cd.getMinutes())}까지 가능합니다.(이후 페널티 발생)`, ...String(p.printNote || "").split(/\r?\n/).filter((s) => s.trim())];
+      return `<div class="page"><div class="ttl" style="text-align:left">${esc(dayLabel(c.date))} ${esc(p.activity || p.title)} 신청 결과 및 추가 접수 안내</div>
+        <div style="font-size:15px;line-height:2">* 주제: ${esc(c.title)}<br>* 강연일시 및 장소:&nbsp;&nbsp; ${esc(dayLabel(c.date))} ${esc(c.period)}${c.place ? ", " + esc(c.place) : ""}</div>
+        <table class="dist" style="margin-top:8px"><tr>${[0, 1, 2].map((k) => `${k ? '<td class="gap"></td>' : ""}<th>연번</th><th>학번</th><th>이름</th><th>신청여부</th>`).join("")}</tr>
+          ${Array.from({ length: per }, (_, r) => `<tr>${[0, 1, 2].map((k) => `${k ? '<td class="gap"></td>' : ""}${cell(all[k * per + r])}`).join("")}</tr>`).join("")}</table>
+        <div class="notes">${notes.map((s) => esc(s)).join("<br>")}</div></div>`;
+    });
+    printWindow(`${p.title} 배포용`, pages);
+  }
+
   async function exportXlsx(p, courses, enroll) {
     await window.Forms.loadExcel();
     const wb = new window.ExcelJS.Workbook();
@@ -800,7 +864,7 @@
         <h2>명단 등록 (직접 입력·엑셀 붙여넣기)</h2>
         <p class="muted small">한 줄에 한 명씩 <b>계정 아이디 · 이름 · 학번</b> 순서로 적거나, 엑셀에서 이 세 열을 복사해 붙여넣으세요. 띄어쓰기·탭·쉼표 모두 됩니다.
           <b>교사는 학번을 비우면</b> 시험용 번호(${TEST_SID})로 들어갑니다. 이미 있는 사람은 학번만 새로 바뀌고, 기존 PIN은 그대로입니다.</p>
-        <textarea name="lines" rows="6" required placeholder="교사아이디 홍길동&#10;학생아이디 홍길순 10101"></textarea>
+        <textarea name="lines" rows="6" required placeholder="계정 아이디 · 이름 · 학번 (한 줄에 한 명)"></textarea>
         <p class="muted small" id="rsPrev"></p>
         <button class="btn">등록</button>
       </form>
@@ -813,7 +877,7 @@
       <form class="card" id="rsReset">
         <h2>PIN 초기화</h2>
         <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
-        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 26○○○"></label><label>이름<input name="name" required autocomplete="off"></label></div>
+        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off"></label><label>이름<input name="name" required autocomplete="off"></label></div>
         <button class="btn">PIN 초기화</button>
       </form>`;
     $("#rsFile").onchange = (e) => {
