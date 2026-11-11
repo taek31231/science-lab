@@ -150,6 +150,7 @@
         save(d);
       },
       async addRoster(key, sid, t) { const d = await load(); d.roster[key] = t ? { sid, t: true } : { sid }; save(d); },
+      async addRosterMany(list) { const d = await load(); for (const r of list) d.roster[r.key] = r.t ? { sid: r.sid, t: true } : { sid: r.sid }; save(d); },
       async rosterCount() { return Object.keys((await load()).roster).length; },
       async hasRoster(key) { return !!(await load()).roster[key]; },
       async resetPin(key) { const d = await load(); delete d.users[key]; save(d); },
@@ -266,6 +267,7 @@
         await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), r.t ? { sid: r.sid, t: true } : { sid: r.sid }));
       },
       async addRoster(key, sid, t) { await db.collection("roster").doc(key).set(t ? { sid, t: true } : { sid }); },
+      async addRosterMany(list) { await chunked(list, (b, r) => b.set(db.collection("roster").doc(r.key), r.t ? { sid: r.sid, t: true } : { sid: r.sid })); },
       async rosterCount() { return (await db.collection("roster").get()).size; },
       async hasRoster(key) { return (await db.collection("roster").doc(key).get()).exists; },
       async resetPin(key) {
@@ -792,22 +794,22 @@
   async function adminRoster(el) {
     const n = await store().rosterCount();
     el.innerHTML = `
-      <div class="card help small">학생이 수강신청에 로그인할 때 쓰는 명단입니다. 구글 관리 콘솔의 <b>사용자 다운로드 CSV</b>(학생·교사 조직, 이름·성·이메일 열)를 고르면
-        <b>'계정 아이디 + 이름'을 되돌릴 수 없는 해시로 바꾼 값과 학번만</b> 저장합니다. 계정 아이디·이름 자체는 사이트에 저장되지 않습니다.
-        학년이 바뀌어 학번이 달라지면(진급 CSV를 올린 뒤) 새로 받은 CSV로 다시 올리세요. 학생이 정한 PIN은 그대로 유지됩니다.</div>
-      <div class="card">
-        <h2>학생·교사 명단 <span class="muted small">현재 ${n}개</span></h2>
-        <label class="btn ghost">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
-        <p class="muted small" id="rsMsg">학생 조직과 교사 조직 CSV를 따로 올려도 됩니다(학생 CSV는 학생 명단만, 교사 CSV는 교사 명단만 바꿈). 성(Last Name) 칸이 학번 5자리면 학생, 아니면 교사로 읽습니다. 교사 계정은 시험용으로 들어가 신청 명단에 ${TEST_SID}로 보입니다.</p>
-      </div>
+      <div class="card help small">수강신청에 로그인할 수 있는 사람(학생·교사) 명단입니다. 여기 등록된 <b>계정 아이디 + 이름</b>으로만 로그인할 수 있습니다.
+        사이트에는 '계정 아이디 + 이름'을 되돌릴 수 없는 해시로 바꾼 값과 학번만 저장되고, 아이디·이름 자체는 남지 않습니다. 현재 등록 <b>${n}</b>건.</div>
       <form class="card" id="rsAdd">
-        <h2>한 명 추가 (시험용 계정·전입생)</h2>
-        <p class="muted small">교직원 계정(예: 24t053)으로 직접 시험해 보거나, 명단을 다시 올리기 전에 전입생을 넣을 때 씁니다.
-          <b>시험용이면 학번 칸은 비워 두세요</b>(출석부·이수시간용 시험 번호 19999가 자동으로 붙음). 전입생이면 실제 학번을 적으세요. 명단 CSV를 다시 올리면 여기서 추가한 계정은 지워집니다.</p>
-        <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 24t053"></label><label>이름<input name="name" required autocomplete="off"></label>
-          <label>학번 (전입생만)<input name="sid" inputmode="numeric" maxlength="5" placeholder="시험용은 비워 두기"></label></div>
-        <button class="btn">추가</button>
+        <h2>명단 등록 (직접 입력·엑셀 붙여넣기)</h2>
+        <p class="muted small">한 줄에 한 명씩 <b>계정 아이디 · 이름 · 학번</b> 순서로 적거나, 엑셀에서 이 세 열을 복사해 붙여넣으세요. 띄어쓰기·탭·쉼표 모두 됩니다.
+          <b>교사는 학번을 비우면</b> 시험용 번호(${TEST_SID})로 들어갑니다. 이미 있는 사람은 학번만 새로 바뀌고, 기존 PIN은 그대로입니다.</p>
+        <textarea name="lines" rows="6" required placeholder="24t053 임형택&#10;26001 김민준 10101&#10;26002 이서연 10102"></textarea>
+        <p class="muted small" id="rsPrev"></p>
+        <button class="btn">등록</button>
       </form>
+      <div class="card">
+        <h2>구글 사용자 CSV로 한꺼번에 바꾸기</h2>
+        <p class="muted small">학년이 바뀌었을 때처럼 전체를 새로 맞출 때 씁니다. 구글 관리 콘솔 → 사용자 → 조직 선택 → <b>사용자 다운로드</b>(CSV)로 받은 파일을 고르세요.
+          성(Last Name) 칸이 학번 5자리면 학생, 아니면 교사로 읽습니다. 학생 CSV는 학생 명단만, 교사 CSV는 교사 명단만 바꿉니다(파일에 없는 사람은 지워짐).</p>
+        <label class="btn ghost">구글 사용자 CSV 고르기<input type="file" accept=".csv" hidden id="rsFile"></label>
+      </div>
       <form class="card" id="rsReset">
         <h2>PIN 초기화</h2>
         <p class="muted small">PIN을 잊었거나, 다른 사람이 먼저 PIN을 정해 버린 경우 초기화합니다. 학생 본인인지 확인한 뒤 진행하세요. 초기화하면 학생이 다음 로그인 때 새 PIN을 정하며, 이미 한 수강신청은 그대로 남습니다.</p>
@@ -848,15 +850,37 @@
         adminRoster(el);
       });
     };
+    // 한 줄: 계정 아이디, 이름, (학번). 머리글 줄(아이디/계정/이름)은 건너뜀
+    const parseLines = (text) => {
+      const ok = [], bad = [];
+      for (const raw of String(text).split(/\r?\n/)) {
+        const line = raw.trim(); if (!line) continue;
+        const c = line.split(/[\t,]+|\s+/).map((s) => s.trim()).filter(Boolean);
+        if (/아이디|계정|이름|email/i.test(c[0] || "")) continue;
+        const acct = normAcct(c[0]), sidCell = c.find((x, i) => i > 0 && /^\d{5}$/.test(x));
+        const name = normName(c.slice(1).filter((x) => x !== sidCell).join(""));
+        if (!acct || !name || (c.length > 3 && !sidCell)) { bad.push(line); continue; }
+        if (sidCell && !window.parseSid(sidCell)) { bad.push(line); continue; }
+        ok.push({ acct, name, sid: sidCell || TEST_SID, t: !sidCell });
+      }
+      return { ok, bad };
+    };
+    const ta = $("#rsAdd").elements.lines;
+    ta.oninput = () => {
+      const { ok, bad } = parseLines(ta.value);
+      const t = ok.filter((x) => x.t).length;
+      $("#rsPrev").innerHTML = ok.length || bad.length ? `등록할 사람 <b>${ok.length}</b>명 (학생 ${ok.length - t} · 교사 ${t})${bad.length ? ` · <span class="warn">읽지 못한 줄 ${bad.length}개: ${esc(bad.slice(0, 3).join(" / "))}</span>` : ""}` : "";
+    };
     $("#rsAdd").onsubmit = (e) => {
       e.preventDefault();
-      const d = Object.fromEntries(new FormData(e.target));
       busy(e.target.querySelector("button"), async () => {
-        const test = !d.sid.trim(), p = window.parseSid(test ? TEST_SID : d.sid.trim());
-        if (!p) fail("전입생 학번은 5자리입니다. 시험용이면 비워 두세요.");
-        if (!normAcct(d.acct) || !normName(d.name)) fail("계정 아이디와 이름을 입력하세요.");
-        await store().addRoster(await studentKey(d.acct, d.name), p.sid, test);
-        alert(`추가했습니다. 수강신청 화면에서 ${normAcct(d.acct)} / ${normName(d.name)} / PIN으로 로그인하면 됩니다.${test ? "\n(시험용이라 신청 명단에는 학번 19999로 보입니다. 1학년 대상 행사에서 시험하세요.)" : ""}`);
+        const { ok, bad } = parseLines(ta.value);
+        if (!ok.length) fail("등록할 줄이 없습니다. '계정 아이디 이름 학번' 순서로 적어 주세요.");
+        if (bad.length && !confirm(`읽지 못한 줄 ${bad.length}개는 건너뜁니다:\n${bad.slice(0, 5).join("\n")}\n계속할까요?`)) return;
+        const list = [];
+        for (const x of ok) list.push(x.t ? { key: await studentKey(x.acct, x.name), sid: x.sid, t: true } : { key: await studentKey(x.acct, x.name), sid: x.sid });
+        await store().addRosterMany(list);
+        alert(`${ok.length}명을 등록했습니다. 이제 수강신청 화면에서 계정 아이디 · 이름 · PIN으로 로그인할 수 있습니다.${ok.some((x) => x.t) ? `\n(교사는 신청 명단에 ${TEST_SID}로 보입니다. 1학년이 포함된 행사에서 시험하세요.)` : ""}`);
         adminRoster(el);
       });
     };
