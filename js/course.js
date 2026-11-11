@@ -794,10 +794,10 @@
       </div>
       <form class="card" id="rsAdd">
         <h2>한 명 추가 (시험용 계정·전입생)</h2>
-        <p class="muted small">교직원 계정(예: 24t053)으로 직접 시험해 보거나, 명단을 다시 올리기 전에 전입생을 넣을 때 씁니다. 시험용 학번은 실제 학생과 겹치지 않게 <b>19999</b>처럼 없는 반·번호로 정하세요.
-          시험용 학번에 이수시간을 반영하면 그 학번 기록이 남습니다. 명단 CSV를 다시 올리면 여기서 추가한 계정은 지워집니다.</p>
+        <p class="muted small">교직원 계정(예: 24t053)으로 직접 시험해 보거나, 명단을 다시 올리기 전에 전입생을 넣을 때 씁니다.
+          <b>시험용이면 학번 칸은 비워 두세요</b>(출석부·이수시간용 시험 번호 19999가 자동으로 붙음). 전입생이면 실제 학번을 적으세요. 명단 CSV를 다시 올리면 여기서 추가한 계정은 지워집니다.</p>
         <div class="row"><label>구글 계정 아이디<input name="acct" required autocomplete="off" placeholder="예) 24t053"></label><label>이름<input name="name" required autocomplete="off"></label>
-          <label>학번 5자리<input name="sid" required inputmode="numeric" maxlength="5" placeholder="예) 19999"></label></div>
+          <label>학번 (전입생만)<input name="sid" inputmode="numeric" maxlength="5" placeholder="시험용은 비워 두기"></label></div>
         <button class="btn">추가</button>
       </form>
       <form class="card" id="rsReset">
@@ -836,11 +836,11 @@
       e.preventDefault();
       const d = Object.fromEntries(new FormData(e.target));
       busy(e.target.querySelector("button"), async () => {
-        const p = window.parseSid(d.sid.trim());
-        if (!p) fail("학번은 5자리입니다 (예: 19999).");
+        const test = !d.sid.trim(), p = window.parseSid(test ? "19999" : d.sid.trim());
+        if (!p) fail("전입생 학번은 5자리입니다. 시험용이면 비워 두세요.");
         if (!normAcct(d.acct) || !normName(d.name)) fail("계정 아이디와 이름을 입력하세요.");
         await store().addRoster(await studentKey(d.acct, d.name), p.sid);
-        alert(`추가했습니다. 수강신청 화면에서 ${normAcct(d.acct)} / ${normName(d.name)}(으)로 로그인하면 학번 ${p.sid}로 신청됩니다.`);
+        alert(`추가했습니다. 수강신청 화면에서 ${normAcct(d.acct)} / ${normName(d.name)} / PIN으로 로그인하면 됩니다.${test ? "\n(시험용이라 신청 명단에는 학번 19999로 보입니다. 1학년 대상 행사에서 시험하세요.)" : ""}`);
         adminRoster(el);
       });
     };
