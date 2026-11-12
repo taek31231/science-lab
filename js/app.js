@@ -5,8 +5,10 @@
   const $ = (s, el = document) => el.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const view = $("#view");
-  let isAdmin = false;
-  let adminTab = "requests";
+  // 로그인한 관리자의 권한 (예: ["lab"]). 마스터는 모든 탭
+  let roles = null;
+  const can = (r) => !!roles && (roles.includes("master") || roles.includes(r));
+  let adminTab = "";
   const curYear = () => window.schoolYear();
   let adminYear = curYear();
   const addDays = (ds, n) => { const d = new Date(ds + "T00:00"); d.setDate(d.getDate() + n); return window.localDate(d); };
@@ -39,7 +41,7 @@
 
   // ---------- 라우터 ----------
   const routes = { "/": home, "/calendar": calendarView, "/apply": applyView, "/purchase": purchaseView,
-    "/status": statusView, "/hours": hoursView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q), "/course": () => window.Course.studentView(view) };
+    "/status": statusView, "/hours": hoursView, "/msds": msdsView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q), "/course": () => window.Course.studentView(view) };
 
   async function render() {
     const [path, qs] = (location.hash.slice(1) || "/").split("?");
@@ -74,6 +76,7 @@
       <div class="grid">
         ${tile("#/calendar", "📅", "일정 캘린더", "실험실 예약 현황과 행사 일정")}
         ${tile("#/apply", "🧪", "실험실 사용 신청", "신청서·시약 조사서·계획서 작성, PDF 저장")}
+        ${tile("#/msds", "⚗️", "MSDS 확인", "사용할 시약의 물질안전보건자료 한 번 더 확인")}
         ${tile("#/purchase", "🛒", "물품 구입 신청", "신청서 작성 후 PDF·엑셀로 저장")}
         ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인 여부·구매 진행 상황 확인")}
         ${tile("#/course", "🎓", "수강신청", "심화실험 캠프·이공계 진로특강 신청")}
@@ -123,6 +126,69 @@
     cal.render();
   }
 
+  // ---------- MSDS 확인 ----------
+  // 안전보건공단 MSDS는 검색어를 주소로 넘길 수 없어서, 물질명을 복사해 두고 사이트를 열어 붙여넣게 함
+  const KOSHA = "https://msds.kosha.or.kr/MSDSInfo/";
+  const msdsBtns = (name) => `
+    <button type="button" class="btn sm" data-msds-open="${esc(name)}" title="물질명을 복사하고 안전보건공단 MSDS를 엽니다. 검색창에 붙여넣기(Ctrl+V)">안전보건공단 MSDS ↗</button>
+    <a class="btn ghost sm" href="https://pubchem.ncbi.nlm.nih.gov/#query=${encodeURIComponent(name)}" target="_blank" rel="noopener noreferrer" title="영문명·CAS 번호로 찾을 때">PubChem ↗</a>`;
+  function bindMsds(root) {
+    root.querySelectorAll("[data-msds-open]").forEach((b) => (b.onclick = () => {
+      const name = b.dataset.msdsOpen;
+      if (name) copyText(name).catch(() => {});
+      window.open(KOSHA, "_blank", "noopener");
+      if (name) { const t = b.textContent; b.textContent = `'${name}' 복사됨 → 검색창에 붙여넣기`; setTimeout(() => (b.textContent = t), 3000); }
+    }));
+  }
+  const MSDS_STEPS = `<ol class="msds-steps small">
+      <li>[안전보건공단 MSDS ↗]를 누르면 물질명이 복사되고 사이트가 열립니다.</li>
+      <li>통합 검색 칸에 붙여넣기(Ctrl+V) → 찾는 물질 선택 → <b>'MSDS 요약정보'</b>.</li>
+      <li>유해·위험 문구, 응급조치(눈·피부), 물리화학적 성질, 화재 시 대처를 <b>조사서에 적은 내용과 대조</b>합니다.</li>
+      <li>다르거나 빠진 내용은 조사서를 고친 뒤 '확인'을 체크합니다.</li></ol>`;
+  // 시약 목록 + 하나씩 '확인' 체크. seen: 확인한 물질명 목록. onChange(seen)
+  function msdsPanel(el, names, seen, onChange) {
+    const draw = () => {
+      el.innerHTML = names.length ? `
+        <div class="msds-list">${names.map((n) => `
+          <div class="msds-row ${seen.includes(n) ? "ok" : ""}"><b>🧪 ${esc(n)}</b>${msdsBtns(n)}
+            <label class="inline-check"><input type="checkbox" data-seen="${esc(n)}" ${seen.includes(n) ? "checked" : ""}> MSDS와 조사서 대조 확인</label></div>`).join("")}
+        </div>
+        <p class="small ${names.every((n) => seen.includes(n)) ? "ok-t" : "warn"}">${names.every((n) => seen.includes(n)) ? "✅ 모든 시약의 MSDS를 확인했습니다." : `확인할 시약 ${names.filter((n) => !seen.includes(n)).length}개 남음 (모두 확인해야 온라인 제출됩니다)`}</p>`
+        : '<p class="muted small">시약·시액 조사서에 물질명을 적으면 여기에 나타납니다. 시약을 쓰지 않으면 확인할 것이 없습니다.</p>';
+      bindMsds(el);
+      el.querySelectorAll("[data-seen]").forEach((c) => (c.onchange = () => {
+        const n = c.dataset.seen;
+        seen = c.checked ? [...new Set([...seen, n])] : seen.filter((x) => x !== n);
+        onChange(seen); draw();
+      }));
+    };
+    draw();
+    return { update(newNames) { names = newNames; seen = seen.filter((n) => names.includes(n)); onChange(seen); draw(); } };
+  }
+  const reagentNames = (d) => [...new Set((d.reagents || []).map((r) => r && (r.name || "").trim()).filter(Boolean))];
+  const MSDS_SEEN = "sci-msds-seen";
+
+  // 메뉴 'MSDS 확인': 작성 중인 신청서의 시약을 한 번 더 확인 + 아무 물질이나 찾아보기
+  async function msdsView() {
+    const draft = ls.get(DRAFT_LAB) || {};
+    const names = reagentNames(draft);
+    view.innerHTML = `
+      <h1>MSDS 확인</h1>
+      <p class="lead">실험에 쓰는 시약의 물질안전보건자료(MSDS)를 안전보건공단 사이트에서 한 번 더 확인합니다.</p>
+      <div class="card"><h2>작성 중인 실험실 신청서의 시약</h2>${MSDS_STEPS}<div id="msdsDraft"></div>
+        <div class="actions"><a class="btn" href="#/apply">실험실 신청서로 돌아가기</a></div></div>
+      <form class="card" id="msdsFind"><h2>다른 물질 찾아보기</h2>
+        <div class="actions"><input name="q" placeholder="물질명 (예: 염산, 수산화 나트륨) 또는 CAS 번호" style="flex:1;min-width:220px" required>
+          <button class="btn">찾기</button></div><div id="msdsOne" style="margin-top:10px"></div></form>`;
+    msdsPanel($("#msdsDraft"), names, ls.get(MSDS_SEEN) || [], (seen) => ls.set(MSDS_SEEN, seen));
+    $("#msdsFind").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = new FormData(e.target).get("q").trim(); if (!q) return;
+      $("#msdsOne").innerHTML = `<div class="msds-row"><b>${esc(q)}</b>${msdsBtns(q)}</div>`;
+      bindMsds($("#msdsOne"));
+    });
+  }
+
   // ---------- 실험실 사용 신청 (학교 A4 양식 3종) ----------
   async function applyView() {
     let events = [], eventsDate = null; // 고른 날짜의 일정만 불러와 겹침 확인
@@ -139,14 +205,25 @@
         <button class="btn" id="submitBtn">온라인 제출</button>
       </div>
       <p id="conflict" class="warn"></p>
-      <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 사용하는 시약이 여러 개면 조사서를 추가하세요.</p>
+      <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 사용하는 시약이 여러 개면 조사서를 추가하세요.
+        이름·지도교사 칸은 한글만, 수량 칸은 한글·숫자만 입력됩니다.</p>
+      <details class="card" id="msdsCard"><summary><b>🧪 MSDS 확인</b> <span class="muted small" id="msdsSum"></span></summary>
+        ${MSDS_STEPS}<div id="msdsBox"></div></details>
       <div class="sheet-scroll" id="sheets"></div>`;
     const box = $("#sheets");
+    Forms.bindOnly(box);
+    let seen = ls.get(MSDS_SEEN) || [];
+    const msdsSum = () => { const n = reagentNames(data); $("#msdsSum").textContent = n.length ? `시약 ${n.length}개 중 ${n.filter((x) => seen.includes(x)).length}개 확인` : "시약 없음"; };
+    const msds = msdsPanel($("#msdsBox"), reagentNames(data), seen, (v) => { seen = v; ls.set(MSDS_SEEN, v); msdsSum(); });
+    msdsSum();
+    let lastNames = reagentNames(data).join("|");
     const draw = () => { box.innerHTML = Forms.labSheets(data); };
     const read = () => ({ ...Forms.readForm(box), team: $("#team").value.trim() });
     const update = () => {
       data = { ...Forms.syncMirrors(box).data, team: $("#team").value.trim() };
       ls.set(DRAFT_LAB, data);
+      const names = reagentNames(data);
+      if (names.join("|") !== lastNames) { lastNames = names.join("|"); msds.update(names); }
       if (data.date && data.date !== eventsDate) {
         eventsDate = data.date;
         Store.listEvents({ from: data.date, to: addDays(data.date, 1) }).then((l) => { events = l; if (eventsDate === data.date) update(); }).catch(() => {});
@@ -175,7 +252,7 @@
     };
     $("#clearBtn").onclick = () => {
       if (!confirm("작성 중인 내용을 모두 지울까요?")) return;
-      data = { reagents: [{}] }; ls.del(DRAFT_LAB); $("#team").value = ""; draw(); update();
+      data = { reagents: [{}] }; ls.del(DRAFT_LAB); ls.del(MSDS_SEEN); $("#team").value = ""; draw(); update();
     };
     $("#pdfBtn").onclick = (e) => busy(e.target, () =>
       Forms.sheetsToPDF([...box.querySelectorAll(".a4")], `실험실사용신청서_${data.date || ""}_${data.users?.[0]?.name || ""}.pdf`));
@@ -193,7 +270,14 @@
       if (!d.sign?.teacher) miss.push("지도교사 서명 ((인) 칸을 눌러 서명)");
       if (!d.sign?.applicant) miss.push("신청자 서명 (신청서 맨 아래 (자필서명) 칸)");
       if (!d.agree) miss.push("준수사항 서약 체크 (신청서 맨 아래)");
-      if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
+      const unseen = reagentNames(d).filter((n) => !seen.includes(n));
+      if (unseen.length) miss.push(`MSDS 확인 (위쪽 'MSDS 확인'에서 ${unseen.join(", ")})`);
+      if (miss.length) {
+        if (unseen.length) $("#msdsCard").open = true;
+        return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
+      }
+      const badOnly = Forms.onlyProblems(box);
+      if (badOnly.length) return alert("입력 형식을 고쳐 주세요 (빨간 칸):\n- " + badOnly.join("\n- "));
       const badSid = (d.users || []).find((u) => u.sid && !window.parseSid(u.sid));
       if (badSid) return alert(`학번 '${badSid.sid}'이(가) 올바르지 않습니다. 5자리로 입력하세요.`);
       if (d.end <= d.start) return alert("종료 시각이 시작 시각보다 늦어야 합니다.");
@@ -204,10 +288,11 @@
       d.reagents = (d.reagents || []).filter((r) => r && Object.values(r).some(Boolean));
       d.applyDate = today();
       d.year = window.schoolYear(d.date);
+      d.msdsOk = true; // 시약이 있으면 위에서 모두 확인해야 여기까지 옴
       busy(e.target, async () => {
         await Store.submitRequest(d);
         ls.set(LAST_TEAM, d.team);
-        ls.del(DRAFT_LAB);
+        ls.del(DRAFT_LAB); ls.del(MSDS_SEEN);
         view.innerHTML = receipt(d.team, "실험실 사용 신청");
       });
     };
@@ -237,9 +322,11 @@
         <button class="btn ghost" id="clearBtn">새로 작성</button>
         <button class="btn" id="submitBtn">온라인 제출</button>
       </div>
-      <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 배송비는 별도 줄에 적고, 사이트 칸을 비우면 위 줄과 같은 구입처로 처리됩니다.</p>
+      <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 배송비는 별도 줄에 적고, 사이트 칸을 비우면 위 줄과 같은 구입처로 처리됩니다.
+        학번은 숫자만, 이름·지도교사는 한글만 입력됩니다.</p>
       <div class="sheet-scroll" id="sheets">${Forms.purchaseSheet(data)}</div>`;
     const box = $("#sheets");
+    Forms.bindOnly(box);
     const update = () => {
       const r = Forms.syncMirrors(box);
       data = { ...r.data, team: $("#team").value.trim() };
@@ -271,6 +358,8 @@
       if (!Forms.filledItems(data).length) miss.push("구입 품목 (한 줄 이상)");
       if (miss.length) return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       if (!window.parseSid(data.sid)) return alert("학번은 5자리로 입력하세요.");
+      const badOnly = Forms.onlyProblems(box);
+      if (badOnly.length) return alert("입력 형식을 고쳐 주세요 (빨간 칸):\n- " + badOnly.join("\n- "));
       const p = { ...data, items: Forms.filledItems(data), year: curYear() };
       busy(e.target, async () => {
         await Store.submitPurchase(p);
@@ -305,7 +394,7 @@
               <span class="badge ${r.status}">${esc(S.reqStatusOf(r.status))}</span><br>
               <span class="muted">${r.kind === "lab" ? `${esc(r.date)} ${esc(r.start)}~${esc(r.end)}` : `품목 ${r.itemCount}개 · 합계 ${Forms.won(r.total) || 0}원${r.useDate ? ` · 사용예정일 ${esc(r.useDate)}` : ""}`}
                 · 신청일 ${new Date(r.createdAt).toLocaleDateString("ko-KR")}</span>
-              ${r.adminNote ? `<div><b>실무사 메모:</b> ${esc(r.adminNote)}</div>` : ""}
+              ${r.adminNote ? `<div><b>관리자 메모:</b> ${esc(r.adminNote)}</div>` : ""}
             </div></div>`).join("")}
         </div>` : `<div class="card error">'${esc(team)}' 팀명으로 접수된 신청이 없습니다. 신청할 때 적은 팀명을 확인해 주세요.</div>`;
     };
@@ -349,28 +438,42 @@
 
   // ---------- 관리자 ----------
   async function adminView() {
-    if (!isAdmin) {
+    if (!roles) {
       view.innerHTML = `
         <h1>관리자 로그인</h1>
         <form class="card" id="loginForm" style="max-width:420px">
-          ${Store.isDemo ? '<p class="muted">데모 모드에서는 아무 값이나 입력해도 로그인됩니다.</p>' : ""}
+          ${Store.isDemo ? `<p class="muted">데모 모드에서는 아무 값이나 입력해도 로그인됩니다. 권한을 골라 그 담당자 화면을 연습할 수 있습니다.</p>
+          <div class="row"><label>데모 권한<select name="role">${Object.entries(S.roles).map(([k, v]) => `<option value="${k}">${v.label} – ${v.desc}</option>`).join("")}</select></label></div>` : ""}
           <div class="row"><label>이메일<input type="email" name="email" ${Store.isDemo ? "" : "required"}></label></div>
           <div class="row"><label>비밀번호<input type="password" name="pw" ${Store.isDemo ? "" : "required"}></label></div>
-          <button class="btn">로그인</button>
+          <div class="actions"><button class="btn">로그인</button>
+            ${Store.isDemo ? "" : '<button type="button" class="btn ghost sm" id="forgotPw">비밀번호를 잊었어요</button>'}</div>
         </form>`;
       $("#loginForm").addEventListener("submit", async (e) => {
         e.preventDefault();
         const d = Object.fromEntries(new FormData(e.target));
-        try { await Store.login(d.email, d.pw); } catch (err) { alert("로그인 실패: " + err.message); }
+        try { await Store.login(d.email, d.pw, d.role); } catch (err) { alert("로그인 실패: " + err.message); }
       });
+      const fp = $("#forgotPw");
+      if (fp) fp.onclick = () => {
+        const email = $("#loginForm").elements.email.value.trim();
+        if (!email) return alert("위 이메일 칸에 로그인 이메일을 먼저 적어 주세요.");
+        busy(fp, async () => { await Store.sendReset(email); alert("비밀번호 재설정 메일을 보냈습니다. 받은편지함(또는 스팸함)을 확인하세요."); });
+      };
       return;
     }
-    const tabs = { requests: "실험실 신청 승인", purchases: "물품 구입 신청", events: "행사 일정", course: "수강신청", hours: "이수시간 입력", hoursList: "이수시간 현황", cleanup: "학년도 정리", dibut: "디벗 관리" };
+    // 탭마다 필요한 권한 (마스터는 모두)
+    const ALL_TABS = { requests: ["실험실 신청 승인", "lab"], purchases: ["물품 구입 신청", "lab"], events: ["행사 일정", "program"],
+      course: ["수강신청", "program"], hours: ["이수시간 입력", "program"], hoursList: ["이수시간 현황", "program"],
+      dibut: ["디벗 관리", "dibut"], accounts: ["관리자 계정", "master"], cleanup: ["학년도 정리", "master"] };
+    const tabs = Object.fromEntries(Object.entries(ALL_TABS).filter(([, [, r]]) => can(r)).map(([k, [t]]) => [k, t]));
+    if (!tabs[adminTab]) adminTab = Object.keys(tabs)[0];
     const years = [0, 1, 2, 3, 4].map((i) => curYear() - i);
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between;margin-bottom:12px">
         <h1>관리자</h1>
         <div class="actions">
+          <span class="badge approved" title="이 계정이 쓸 수 있는 업무">${roles.map((r) => esc((S.roles[r] || { label: r }).label)).join(" · ")}</span>
           <span class="actions" id="badgeCtl"></span>
           <label class="inline-check">학년도
             <select id="yearSel">${years.map((y) => `<option value="${y}" ${y === adminYear ? "selected" : ""}>${y}학년도${y === curYear() ? " (현재)" : ""}</option>`).join("")}</select></label>
@@ -382,28 +485,48 @@
     window.AdminBadge.renderControl($("#badgeCtl"));
     $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
-    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, course: () => window.Course.admin($("#adminBody"), adminYear), hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
+    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, course: () => window.Course.admin($("#adminBody"), adminYear), hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, accounts: adminAccounts, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
   }
 
-  // 서명 미리보기 + '지도교사 확인' 체크 (체크해야 승인 버튼이 눌림)
+  // 서명 미리보기. 지도교사 서명 = 지도교사가 미리 허락했다는 뜻이므로 실무사는 바로 승인할 수 있음.
+  // 확인이 더 필요할 때만 [확인 요청 문구 복사] → 메신저로 보내고, 답을 받으면 '다시 확인함'(선택) 체크
   const signCheck = (r) => {
     const s = r.sign || {};
-    const img = (u, who) => `<span>${who} ${u ? `<img src="${esc(u)}" alt="${who} 서명">` : '<span class="muted">(서명 없음)</span>'}</span>`;
+    const img = (u, who) => `<span>${who} ${u ? `<img src="${esc(u)}" alt="${who} 서명">` : '<span class="warn">(서명 없음)</span>'}</span>`;
     return `<div class="sig-thumbs">${img(s.applicant, "신청자")}${img(s.teacher, `지도교사(${esc(r.teacher || "-")})`)}
-      <label class="inline-check"><input type="checkbox" data-tcheck="${esc(r.id)}" ${r.teacherChecked ? "checked" : ""}>
-        <b>지도교사 확인함</b> <span class="muted small">(메신저·전화 등으로 지도교사에게 확인)</span></label></div>`;
+      <span class="actions" style="gap:6px">
+        <button type="button" class="btn ghost sm" data-askt="${esc(r.id)}" title="메신저에 붙여넣을 확인 요청 문구를 복사합니다">지도교사 확인 요청 문구 복사</button>
+        <label class="inline-check"><input type="checkbox" data-tcheck="${esc(r.id)}" ${r.teacherChecked ? "checked" : ""}>
+          지도교사에게 다시 확인함 <span class="muted small">(선택)</span></label></span></div>`;
   };
-  const approveLock = (r) => (r.teacherChecked || r.status === "approved" ? "" : 'disabled title="지도교사 확인을 먼저 체크하세요"');
+  const wd = (ds) => { const d = new Date(ds + "T00:00"); return isNaN(d) ? ds : `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]})`; };
+  // 메신저로 보낼 지도교사 확인 요청 문구
+  function askTeacherText(kind, r) {
+    const t = r.teacher ? `${r.teacher} 선생님` : "선생님";
+    if (kind === "lab") {
+      return `[과학실 사용 확인 요청]\n${t}, 안녕하세요. 과학실입니다.\n` +
+        `'${r.team || "팀명 없음"}' 팀이 ${wd(r.date)} ${r.start}~${r.end} ${r.lab} 사용을 신청했습니다.\n` +
+        `- 사용자: ${userList(r).map((u) => [u.sid, u.name].filter(Boolean).join(" ")).join(", ")}\n` +
+        `- 목적: ${r.purpose || "-"}\n` +
+        ((r.reagents || []).some((x) => x && x.name) ? `- 시약: ${(r.reagents || []).map((x) => x && x.name).filter(Boolean).join(", ")}\n` : "") +
+        `선생님 서명으로 접수되었습니다. 지도해 주시는 실험이 맞는지 회신 부탁드립니다.`;
+    }
+    return `[물품 구입 확인 요청]\n${t}, 안녕하세요. 과학실입니다.\n` +
+      `'${r.team || "팀명 없음"}' 팀(${[r.sid, r.name].filter(Boolean).join(" ")})이 물품 ${Forms.filledItems(r).length}개, 합계 ${Forms.won(itemsTotal(r)) || 0}원 구입을 신청했습니다.\n` +
+      `- 목적: ${r.purpose || "-"}\n선생님 서명으로 접수되었습니다. 구입을 진행해도 되는지 회신 부탁드립니다.`;
+  }
+  async function copyText(text, btn) {
+    try { await navigator.clipboard.writeText(text); }
+    catch { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    if (btn) { const t = btn.textContent; btn.textContent = "복사됨 ✓ 메신저에 붙여넣으세요"; setTimeout(() => (btn.textContent = t), 2500); }
+  }
   function bindTeacherCheck(body, kind, byId) {
+    body.querySelectorAll("[data-askt]").forEach((b) => (b.onclick = () => copyText(askTeacherText(kind, byId[b.dataset.askt]), b)));
     body.querySelectorAll("[data-tcheck]").forEach((c) => (c.onchange = async () => {
       const id = c.dataset.tcheck, on = c.checked;
       c.disabled = true;
-      try {
-        await Store.setTeacherChecked(kind, id, on);
-        byId[id].teacherChecked = on;
-        const btn = body.querySelector(`[data-act="approved"][data-id="${CSS.escape(id)}"]`);
-        if (btn && byId[id].status !== "approved") { btn.disabled = !on; btn.title = on ? "" : "지도교사 확인을 먼저 체크하세요"; }
-      } catch (err) { c.checked = !on; alert("저장하지 못했습니다: " + err.message); }
+      try { await Store.setTeacherChecked(kind, id, on); byId[id].teacherChecked = on; }
+      catch (err) { c.checked = !on; alert("저장하지 못했습니다: " + err.message); }
       c.disabled = false;
     }));
   }
@@ -455,12 +578,19 @@
         <p style="margin:6px 0"><b>[${esc(r.team || "팀명 없음")}]</b> ${esc(r.purpose)}</p>
         <p class="muted" style="margin:0">사용자: ${userList(r).map((u) => `${esc(u.sid)} ${esc(u.name)}`).join(", ")} · 지도교사 ${esc(r.teacher)}</p>
         <p class="muted" style="margin:0">재료·기자재: ${esc(mats.join(", ") || "없음")}</p>
-        <p class="muted" style="margin:0 0 6px">시약: ${esc(reag.join(", ") || "없음")}${r.plan?.title ? ` · 실험 제목: ${esc(r.plan.title)}` : ""}</p>
+        <p class="muted" style="margin:0">시약: ${esc(reag.join(", ") || "없음")}${reag.length ? (r.msdsOk ? ' <span class="badge approved">학생 MSDS 확인함</span>' : ' <span class="badge pending">MSDS 확인 기록 없음</span>') : ""}${r.plan?.title ? ` · 실험 제목: ${esc(r.plan.title)}` : ""}</p>
+        ${(r.reagents || []).filter((x) => x && x.name).map((x) => `
+          <details class="reag-detail"><summary class="small">🧪 <b>${esc(x.name)}</b> 조사서 내용 보기 · MSDS와 대조</summary>
+            <div class="actions" style="margin-top:6px">${msdsBtns(x.name)}</div>
+            <dl>${[["유해·위험", x.hazard], ["눈에 들어갔을 때", x.eye], ["피부 접촉", x.skin], ["냄새", x.smell], ["녹는점", x.melt], ["끓는점", x.boil], ["인화점", x.flash],
+              ["안정성·반응성", x.stability], ["화재 시 대처", x.fire], ["그 외", x.etc]].map(([k, v]) => `<dt>${k}</dt><dd>${v ? esc(v) : '<span class="warn">비어 있음</span>'}</dd>`).join("")}</dl>
+          </details>`).join("")}
+        <div style="margin-bottom:6px"></div>
         ${c ? `<p class="warn">⚠ 겹치는 승인 일정: ${esc(c.title)} ${fmtDate(c.start)}</p>` : ""}
         ${signCheck(r)}
         <div class="actions">
           <input placeholder="학생에게 보낼 메모 (반려 사유 등)" data-note="${esc(r.id)}" value="${esc(r.adminNote)}" style="flex:1;min-width:200px">
-          <button class="btn ok sm" data-act="approved" data-id="${esc(r.id)}" ${approveLock(r)}>승인</button>
+          <button class="btn ok sm" data-act="approved" data-id="${esc(r.id)}">승인</button>
           <button class="btn bad sm" data-act="rejected" data-id="${esc(r.id)}">반려</button>
           <button class="btn ghost sm" data-pdf="${esc(r.id)}">신청서 PDF</button>
           ${delBtn(r)}
@@ -479,6 +609,7 @@
       adminRequests();
     }));
     bindTeacherCheck(body, "lab", byId);
+    bindMsds(body);
     body.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => {
       const r = byId[b.dataset.pdf];
       busy(b, () => Forms.dataToPDF("lab", r, `실험실사용신청서_${r.date}_${userList(r)[0]?.name || ""}.pdf`));
@@ -542,13 +673,12 @@
       busy(e.target, () => Forms.purchasesToXlsx(s, `물품신청내역_${today()}.xlsx`));
     };
     body.querySelectorAll("[data-detail]").forEach((b) => (b.onclick = () => { const r = $(`#d-${CSS.escape(b.dataset.detail)}`); r.hidden = !r.hidden; }));
-    // 상태 저장: 준비중·추후예정·배송완료·인계완료는 지도교사 확인 체크가 있어야 함
+    // 상태 저장 (지도교사 서명이 있으면 바로 진행. 다시 확인은 필요할 때만)
     body.querySelectorAll("[data-pset]").forEach((b) => (b.onclick = () => {
       const id = b.dataset.pset, p = byId[id];
       const st = body.querySelector(`[data-pstatus="${CSS.escape(id)}"]`).value;
       const note = body.querySelector(`[data-note="${CSS.escape(id)}"]`).value;
       if (!st) return alert("바꿀 상태를 고르세요.");
-      if (!["hold", "canceled"].includes(st) && !p.teacherChecked) return alert("'지도교사 확인함'을 먼저 체크하세요.\n(보류·구매취소는 체크 없이도 됩니다)");
       if (st === "canceled" && !note && !confirm("취소 사유 메모 없이 구매취소할까요?")) return;
       busy(b, async () => { await Store.decidePurchase(id, st, note); adminPurchases(); });
     }));
@@ -829,6 +959,79 @@
     };
   }
 
+  // ---------- 관리자 계정·권한 (마스터만) ----------
+  // 마스터가 계정을 만들고 맡은 업무(과학실 운영·행사·과중 기획·디벗)를 정함. Firebase 콘솔을 열 필요 없음
+  async function adminAccounts() {
+    const body = $("#adminBody");
+    const list = (await Store.listAdmins()).sort((a, b) => (b.roles.includes("master") - a.roles.includes("master")) || String(a.name || "").localeCompare(b.name || ""));
+    const me = Store.myUid();
+    const roleBoxes = (name, on, dis = "") => Object.entries(S.roles).map(([k, v]) =>
+      `<label class="inline-check" title="${esc(v.desc)}"><input type="checkbox" name="${name}" value="${k}" ${on.includes(k) ? "checked" : ""} ${dis}> ${esc(v.label)}</label>`).join(" ");
+    body.innerHTML = `
+      <div class="card">
+        <h2>관리자 계정 (${list.length})</h2>
+        <p class="muted">계정마다 맡은 업무만 열립니다. <b>마스터</b>는 모든 탭과 이 화면, 학년도 정리를 씁니다.</p>
+        <ul class="muted small" style="margin:0 0 10px;padding-left:18px">
+          ${Object.values(S.roles).map((v) => `<li><b>${esc(v.label)}</b>: ${esc(v.desc)}</li>`).join("")}
+        </ul>
+        <div class="table-wrap"><table>
+          <tr><th>이름</th><th>로그인 이메일</th><th>권한</th><th></th></tr>
+          ${list.map((a) => `<tr data-uid="${esc(a.uid)}">
+            <td><input data-aname value="${esc(a.name || "")}" style="width:140px"></td>
+            <td>${esc(a.email || "-")}${a.uid === me ? ' <span class="badge approved">나</span>' : ""}</td>
+            <td>${roleBoxes("r_" + a.uid, a.roles)}</td>
+            <td><div class="actions"><button class="btn ok sm" data-asave>저장</button>
+              ${a.uid === me ? "" : '<button class="btn bad sm" data-adel>삭제</button>'}
+              ${a.email ? '<button class="btn ghost sm" data-areset title="이 이메일로 비밀번호 재설정 메일을 보냅니다">비밀번호 재설정 메일</button>' : ""}</div></td>
+          </tr>`).join("")}
+        </table></div>
+      </div>
+      <form class="card" id="newAdmin">
+        <h2>새 관리자 계정</h2>
+        <div class="row">
+          <label>이름<input name="name" required placeholder="예) 과학실무사"></label>
+          <label>로그인 이메일<input name="email" type="email" required></label>
+          <label>처음 비밀번호 (6자 이상)<input name="pw" type="text" minlength="6" required autocomplete="off"></label>
+        </div>
+        <div class="row"><div>${roleBoxes("roles", [])}</div></div>
+        <p class="muted small">만든 뒤 이름·이메일·처음 비밀번호를 본인에게 직접 전달하고, 첫 로그인 뒤 [비밀번호 재설정 메일]로 바꾸게 안내하세요.</p>
+        <button class="btn">계정 만들기</button>
+        <details style="margin-top:12px"><summary class="muted" style="cursor:pointer">이미 Firebase에 있는 계정을 UID로 추가</summary>
+          <div class="row" style="margin-top:8px"><label>사용자 UID (Firebase 콘솔 → Authentication)<input id="byUid"></label>
+            <label>이름<input id="byUidName"></label></div>
+          <button type="button" class="btn ghost sm" id="byUidBtn">위에서 고른 권한으로 추가</button></details>
+      </form>`;
+    const pick = (name) => [...body.querySelectorAll(`input[name="${CSS.escape(name)}"]:checked`)].map((c) => c.value);
+    body.querySelectorAll("[data-asave]").forEach((b) => (b.onclick = () => {
+      const tr = b.closest("tr"), id = tr.dataset.uid, r = pick("r_" + id);
+      if (!r.length) return alert("권한을 하나 이상 고르세요. (계정을 없애려면 삭제)");
+      if (id === me && !r.includes("master")) return alert("내 계정의 마스터 권한은 뺄 수 없습니다. 다른 마스터 계정에서 바꾸세요.");
+      busy(b, async () => { await Store.saveAdmin(id, tr.querySelector("[data-aname]").value.trim(), r); adminAccounts(); });
+    }));
+    body.querySelectorAll("[data-adel]").forEach((b) => (b.onclick = () => {
+      const tr = b.closest("tr"), a = list.find((x) => x.uid === tr.dataset.uid);
+      if (!confirm(`'${a.name || a.email}' 계정의 관리자 권한을 없앨까요?\n(로그인해도 관리자 화면이 열리지 않습니다)`)) return;
+      busy(b, async () => { await Store.removeAdmin(a.uid); adminAccounts(); });
+    }));
+    body.querySelectorAll("[data-areset]").forEach((b) => (b.onclick = () => {
+      const a = list.find((x) => x.uid === b.closest("tr").dataset.uid);
+      if (!confirm(`${a.email} 로 비밀번호 재설정 메일을 보낼까요?`)) return;
+      busy(b, async () => { await Store.sendReset(a.email); alert("메일을 보냈습니다. 받은편지함(또는 스팸함)의 링크로 새 비밀번호를 정하면 됩니다."); });
+    }));
+    const f = $("#newAdmin");
+    f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(f)), r = pick("roles");
+      if (!r.length) return alert("권한을 하나 이상 고르세요.");
+      busy(f.querySelector("button.btn:not(.ghost)"), async () => { await Store.createAdmin(d.email.trim(), d.pw, d.name.trim(), r); alert("계정을 만들었습니다."); adminAccounts(); });
+    });
+    $("#byUidBtn").onclick = (e) => {
+      const id = $("#byUid").value.trim(), r = pick("roles");
+      if (!id || !r.length) return alert("UID와 권한을 넣으세요.");
+      busy(e.target, async () => { await Store.addAdminByUid(id, $("#byUidName").value.trim(), r); adminAccounts(); });
+    };
+  }
+
   // 알림창(🔔)에서 항목을 누르면 해당 관리자 화면으로 이동
   window.App = {
     openAdmin(tab, sub) {
@@ -845,8 +1048,8 @@
   window.addEventListener("hashchange", render);
   let first = true;
   Store.onAuth((a) => {
-    isAdmin = a;
-    a ? window.AdminBadge.start() : window.AdminBadge.stop(); // 대기 건수 → 작업 표시줄·창 제목
+    roles = a && a.length ? a : null;
+    roles ? window.AdminBadge.start(can) : window.AdminBadge.stop(); // 대기 건수 → 작업 표시줄·창 제목 (맡은 업무만)
     if (first) { first = false; render(); } else if (location.hash.startsWith("#/admin")) render();
   });
 })();

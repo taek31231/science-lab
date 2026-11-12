@@ -278,7 +278,7 @@
           <b>${s.kind === "pw" ? "🔑" : "📱"} ${esc(s.title)}</b> <span class="badge ${s.status === "done" ? "approved" : s.status === "rejected" ? "rejected" : "pending"}">${REQ[s.status] || s.status}</span><br>
           <span class="muted">신청일 ${day(s.createdAt)}</span>
           ${s.kind === "pw" && s.status === "done" ? `<div class="dibut-msg">📩 <b>디벗 메시지를 확인하세요.</b> 임시 비밀번호가 본인 디벗 알림으로 전송되었습니다.</div>` : ""}
-          ${s.note && !(s.kind === "pw" && s.status === "done") ? `<div><b>실무사 메모:</b> ${esc(s.note)}</div>` : ""}
+          ${s.note && !(s.kind === "pw" && s.status === "done") ? `<div><b>관리자 메모:</b> ${esc(s.note)}</div>` : ""}
         </div></div>`).join("")}</div>`
         : `<div class="card error">일치하는 신청이 없습니다. 이름과 PIN을 다시 확인하세요. (PIN을 잊었다면 과학정보부로 문의)</div>`;
     };

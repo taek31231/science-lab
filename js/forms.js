@@ -39,8 +39,8 @@
 
   // ---------------- 실험실 사용 신청서 (3종) ----------------
   function labSheets(d) {
-    const u = (i) => `<tr><th>${i + 1}</th><td>${I(d, `users.${i}.sid`, 'inputmode="numeric" maxlength="5"')}</td><td>${I(d, `users.${i}.name`)}</td>`;
-    const m = (i) => `<td>${I(d, `materials.${i}.name`)}</td><td>${I(d, `materials.${i}.spec`)}</td><td>${I(d, `materials.${i}.qty`)}</td>`;
+    const u = (i) => `<tr><th>${i + 1}</th><td>${I(d, `users.${i}.sid`, 'inputmode="numeric" maxlength="5" data-only="num"')}</td><td>${I(d, `users.${i}.name`, 'data-only="ko"')}</td>`;
+    const m = (i) => `<td>${I(d, `materials.${i}.name`)}</td><td>${I(d, `materials.${i}.spec`)}</td><td>${I(d, `materials.${i}.qty`, 'data-only="kn"')}</td>`;
     const matRows = [...Array(8).keys()].map((i) => `<tr>${m(i)}${m(i + 8)}</tr>`).join("");
     const today = new Date().toISOString().slice(0, 10);
 
@@ -54,7 +54,7 @@
           <th>실험 장소</th><td>${SEL(d, "lab", S.labs)}</td></tr>
         <tr class="h9"><th>사용 목적</th><td colspan="5">${I(d, "purpose", 'placeholder="예) 케미스토리 동아리 – 산화환원 적정 실험"')}</td></tr>
         <tr><th rowspan="4">사용자</th><th></th><th>학번</th><th>이름</th><th colspan="2">지도교사 확인</th></tr>
-        ${u(0)}<td colspan="2" rowspan="3" class="sign">${I(d, "teacher", 'placeholder="지도교사 성함" class="w-teacher"')}<span class="in">${SIG(d, "sign.teacher", "(인)", "지도교사")}</span></td></tr>
+        ${u(0)}<td colspan="2" rowspan="3" class="sign">${I(d, "teacher", 'placeholder="지도교사 성함" class="w-teacher" data-only="ko"')}<span class="in">${SIG(d, "sign.teacher", "(인)", "지도교사")}</span></td></tr>
         ${u(1)}</tr>${u(2)}</tr>
         <tr><th>실험 재료<br>및<br>기자재<br>요청 사항</th><td colspan="5" class="inner">
           <table class="f mat"><colgroup><col style="width:21%"><col style="width:18%"><col style="width:9%"><col style="width:21%"><col style="width:18%"><col style="width:9%"></colgroup>
@@ -156,10 +156,10 @@
       <table class="f thick">
         <colgroup><col style="width:58%"><col style="width:42%"></colgroup>
         <tr><td class="top" style="height:27mm"><b>실험 목적 및 내용:</b>${T(d, "purpose", "17mm")}</td>
-            <td class="top"><b>신청자 학번 / 이름:</b><div class="pair">${I(d, "sid", 'inputmode="numeric" maxlength="5" placeholder="학번"')} / ${I(d, "name", 'placeholder="이름"')}</div>
+            <td class="top"><b>신청자 학번 / 이름:</b><div class="pair">${I(d, "sid", 'inputmode="numeric" maxlength="5" placeholder="학번" data-only="num"')} / ${I(d, "name", 'placeholder="이름" data-only="ko"')}</div>
               <div class="pair"><b>서명 :</b> ${SIG(d, "sign.applicant", "(서명)", "신청자")}</div></td></tr>
         <tr class="h11"><td class="nw"><b>사용예정일 :</b> ${I(d, "useDate", 'type="date" data-fmt="date" class="w-date"')}</td>
-            <td class="nw"><b>지도교사 :</b> ${I(d, "teacher", 'class="w-teacher"')} <span class="in2">${SIG(d, "sign.teacher", "<b>(인)</b>", "지도교사")}</span></td></tr>
+            <td class="nw"><b>지도교사 :</b> ${I(d, "teacher", 'class="w-teacher" placeholder="성함" data-only="ko"')} <span class="in2">${SIG(d, "sign.teacher", "<b>(인)</b>", "지도교사")}</span></td></tr>
       </table>
       <table class="f thick items">
         <colgroup><col style="width:18%"><col style="width:13%"><col style="width:6%"><col style="width:10%"><col style="width:10.5%"><col style="width:9%"><col style="width:14.5%"><col style="width:19%"></colgroup>
@@ -167,6 +167,45 @@
         ${rows}
       </table>
     </div>`;
+  }
+
+  // ---------------- 입력 제한 (이름·지도교사: 한글만, 수량: 한글·숫자, 학번: 숫자) ----------------
+  // 한글 조합 중(isComposing)에는 건드리지 않고, 조합이 끝나거나 영어·기호를 칠 때 걸러 냄
+  const ONLY = {
+    ko:  { re: /[^가-힣ㄱ-ㅎㅏ-ㅣ\u1100-\u11FF\s]/g, ok: /^[가-힣\s]*$/, msg: "한글만 입력할 수 있습니다" },
+    kn:  { re: /[^가-힣ㄱ-ㅎㅏ-ㅣ\u1100-\u11FF0-9.\s]/g, ok: /^[가-힣0-9.\s]*$/, msg: "한글과 숫자만 입력할 수 있습니다 (예: 2, 2개, 1세트)" },
+    num: { re: /\D/g, ok: /^\d*$/, msg: "숫자만 입력할 수 있습니다" }
+  };
+  let tipEl = null, tipTimer = null;
+  function tip(el, msg) {
+    if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "only-tip"; document.body.appendChild(tipEl); }
+    const r = el.getBoundingClientRect();
+    tipEl.textContent = msg; tipEl.hidden = false;
+    tipEl.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + "px";
+    tipEl.style.top = (r.bottom + 4) + "px";
+    el.classList.add("only-bad");
+    clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => { tipEl.hidden = true; el.classList.remove("only-bad"); }, 1800);
+  }
+  function filterOnly(el) {
+    const o = ONLY[el.dataset.only]; if (!o) return;
+    const v = el.value, nv = v.replace(o.re, "");
+    if (nv !== v) { const pos = el.selectionStart - (v.length - nv.length); el.value = nv; try { el.setSelectionRange(pos, pos); } catch {} tip(el, o.msg); }
+  }
+  // root 안의 data-only 칸에 적용 (화면 코드의 input 처리보다 먼저 걸러지도록 capture)
+  function bindOnly(root) {
+    root.addEventListener("input", (e) => { if (e.target.dataset && e.target.dataset.only && !e.isComposing) filterOnly(e.target); }, true);
+    root.addEventListener("compositionend", (e) => { if (e.target.dataset && e.target.dataset.only) { filterOnly(e.target); e.target.dispatchEvent(new Event("input", { bubbles: true })); } }, true);
+  }
+  // 제출 전 확인 (임시저장에 남은 예전 값까지): 규칙에 맞지 않는 칸의 이름 목록
+  function onlyProblems(root) {
+    const names = { ko: "한글만", kn: "한글·숫자만", num: "숫자만" };
+    const bad = [];
+    root.querySelectorAll("[data-only]").forEach((el) => {
+      const o = ONLY[el.dataset.only];
+      if (o && el.value && !o.ok.test(el.value.trim())) { bad.push(`'${el.value}' (${names[el.dataset.only]})`); el.classList.add("only-bad"); }
+    });
+    return bad;
   }
 
   // ---------------- 읽기 / 동기화 ----------------
@@ -414,7 +453,7 @@
     await loadScript(LIB.exceljs);
     const wb = new window.ExcelJS.Workbook();
     const users = (r) => (r.users || []).filter((u) => u && (u.sid || u.name));
-    addTable(wb, "실험실 신청", [["신청일", 11], ["상태", 8], ["실무사 메모", 18], ["신청팀", 14], ["사용일", 11], ["시간", 12], ["실험실", 13],
+    addTable(wb, "실험실 신청", [["신청일", 11], ["상태", 8], ["관리자 메모", 18], ["신청팀", 14], ["사용일", 11], ["시간", 12], ["실험실", 13],
       ["사용 목적", 24], ["지도교사", 9], ["사용자(학번 이름)", 18], ["재료·기자재", 26], ["시약·시액 조사", 40], ["실험 계획서", 50]],
       data.requests.map((r) => [day(r.createdAt), ST[r.status] || r.status, r.adminNote, r.team, r.date, `${r.start}~${r.end}`, r.lab,
         r.purpose, r.teacher, lines(users(r).map((u) => `${u.sid} ${u.name}`)),
@@ -424,7 +463,7 @@
           x.stability && `안정성: ${x.stability}`, x.fire && `화재 시: ${x.fire}`, x.etc && `기타: ${x.etc}`]))),
         (() => { const p = r.plan || {}; return lines([p.title && `제목: ${p.title}`, p.period && `${p.period}교시`, p.topic && `연구 주제: ${p.topic}`,
           p.prep && `준비물: ${p.prep}`, p.caution && `주의사항: ${p.caution}`, p.steps && `실험 과정: ${p.steps}`, p.result && `예상 결과: ${p.result}`]); })()]));
-    addTable(wb, "물품 신청 목록", [["신청일", 11], ["상태", 8], ["실무사 메모", 18], ["신청팀", 16], ["신청자", 14], ["지도교사", 9],
+    addTable(wb, "물품 신청 목록", [["신청일", 11], ["상태", 8], ["관리자 메모", 18], ["신청팀", 16], ["신청자", 14], ["지도교사", 9],
       ["실험 목적 및 내용", 30], ["사용예정일", 11], ["품목 수", 7], ["합계(원)", 11]],
       data.purchases.map((p) => [day(p.createdAt), ST[p.status] || p.status, p.adminNote, p.team, `${p.sid} ${p.name}`, p.teacher,
         p.purpose, p.useDate, filledItems(p).length, filledItems(p).reduce((a, it) => a + (+it.qty || 0) * (+it.price || 0), 0)]));
@@ -562,6 +601,6 @@
   }
 
   window.Forms = { labSheets, purchaseSheet, readForm, syncMirrors, sheetsToPDF, dataToPDF, purchasesToXlsx, backupXlsx, filledItems, fmt, won,
-    bulkTemplate, readBulkXlsx, cellText, toDateStr, toTimeStr,
+    bulkTemplate, readBulkXlsx, cellText, toDateStr, toTimeStr, bindOnly, onlyProblems,
     loadExcel: () => loadScript(LIB.exceljs), saveWorkbook };
 })();

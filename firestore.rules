@@ -7,22 +7,33 @@ service cloud.firestore {
       return request.auth != null
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
+    // 관리자 권한: admins 문서의 roles 목록 (master · lab · program · dibut)
+    //  - roles가 없는 예전 계정(콘솔에서 만든 계정)은 마스터로 봄
+    //  - 마스터는 모든 업무, 나머지는 맡은 업무만
+    function can(role) {
+      return isAdmin() && (
+        !('roles' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+        || get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.roles.hasAny(['master', role]));
+    }
+    function isMaster() { return can('master'); }
 
-    // 관리자 목록: 콘솔에서만 추가. 본인 문서만 읽기 가능(로그인 시 관리자 확인용)
+    // 관리자 계정: 본인 문서는 읽기 가능(로그인 시 권한 확인용), 목록·추가·변경·삭제는 마스터만
     match /admins/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
+      allow read: if (request.auth != null && request.auth.uid == uid) || isMaster();
+      allow write: if isMaster()
+        && (request.resource == null || (request.resource.data.roles is list && request.resource.data.roles.size() > 0
+            && request.resource.data.roles.hasOnly(['master', 'lab', 'program', 'dibut'])));
     }
 
     // 실험실 사용 신청 원본 (학생 이름·학번 포함)
     //  - 누구나 '검토 중' 상태로만 새 신청 가능
     //  - 읽기·승인/반려는 관리자만 (학생은 statusBoard에서 팀명으로 결과 확인)
     match /labRequests/{id} {
-      allow read, update, delete: if isAdmin();
+      allow read, update, delete: if can('lab');
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && request.resource.data.keys().hasOnly(['year','team','date','start','end','lab','purpose','teacher','users',
-             'materials','reagents','plan','agree','applyDate','status','adminNote','createdAt','sign'])
+             'materials','reagents','plan','agree','msdsOk','applyDate','status','adminNote','createdAt','sign'])
         && request.resource.data.team.size() < 60
         && request.resource.data.purpose.size() < 300
         && request.resource.data.reagents.size() <= 20
@@ -38,7 +49,7 @@ service cloud.firestore {
 
     // 물품 구입 신청 원본: 실험실 신청과 같은 방식
     match /purchaseRequests/{id} {
-      allow read, update, delete: if isAdmin();
+      allow read, update, delete: if can('lab');
       allow create: if request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && request.resource.data.keys().hasOnly(['year','purpose','sid','name','useDate','teacher','team',
@@ -52,8 +63,8 @@ service cloud.firestore {
     //  - 신청서와 같은 묶음으로만 새로 만들 수 있음 (가짜 결과 방지)
     match /statusBoard/{id} {
       allow read: if true;
-      allow update, delete: if isAdmin();
-      allow create: if isAdmin() || (
+      allow update, delete: if can('lab');
+      allow create: if can('lab') || (
         request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
         && request.resource.data.keys().hasOnly(['kind','year','team','teamKey','status','adminNote','createdAt',
@@ -62,28 +73,36 @@ service cloud.firestore {
             || existsAfter(/databases/$(database)/documents/purchaseRequests/$(id))));
     }
 
-    // 캘린더 일정: 누구나 보기, 관리자만 수정
+    // 캘린더 일정: 누구나 보기
+    //  - 실험실 사용 일정(type 'lab', 승인하면 자동 등록)은 과학실 운영
+    //  - 그 밖의 행사 일정은 행사·과중 기획
+    function evType(d) { return d.get('type', ''); }
     match /events/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, update: if (can('lab') && evType(request.resource.data) == 'lab' && (resource == null || evType(resource.data) == 'lab'))
+        || (can('program') && evType(request.resource.data) != 'lab' && (resource == null || evType(resource.data) != 'lab'));
+      allow delete: if resource == null
+        || (can('lab') && evType(resource.data) == 'lab')
+        || (can('program') && evType(resource.data) != 'lab');
     }
 
-    // 이수시간 (문서ID = 학년도_학번): 단건 조회만 공개, 전체 목록·입력·삭제는 관리자만
+    // 이수시간 (문서ID = 학년도_학번): 단건 조회만 공개, 전체 목록·입력·삭제는 행사·과중 기획
     match /hours/{id} {
       allow get: if true;
-      allow list, write: if isAdmin();
+      allow list, write: if can('program');
     }
 
     // ===== 수강신청 (심화실험 캠프·이공계 진로특강) =====
     // 학생 명단: '계정 아이디+이름' 해시 → 학번. 하나씩 조회만 공개(목록은 관리자만)
+    //  (명단 올리기는 디벗 → 구글 계정 명단, PIN 초기화는 수강신청 담당도 씀)
     match /roster/{key} {
       allow get: if true;
-      allow list, write: if isAdmin();
+      allow list, write: if can('dibut') || can('program');
     }
     // PIN 초기화 횟수 (로그인 주소에 들어감)
     match /resets/{key} {
       allow get: if true;
-      allow list, write: if isAdmin();
+      allow list, write: if can('program') || can('dibut');
     }
     function resetN(key) {
       return exists(/databases/$(database)/documents/resets/$(key))
@@ -91,8 +110,8 @@ service cloud.firestore {
     }
     // 로그인한 학생: 명단 열쇠와 로그인 주소가 맞아야만 학번을 연결할 수 있음
     match /students/{uid} {
-      allow get: if isAdmin() || (request.auth != null && request.auth.uid == uid);
-      allow list, delete: if isAdmin();
+      allow get: if can('program') || can('dibut') || (request.auth != null && request.auth.uid == uid);
+      allow list, delete: if can('program') || can('dibut');
       allow create, update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['key','sid','name','at'])
         && request.resource.data.key is string && request.resource.data.key.matches('^[0-9a-f]{40}$')
@@ -117,13 +136,13 @@ service cloud.firestore {
     // 행사: 누구나 보기, 관리자만 수정
     match /programs/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if can('program');
     }
     // 강좌: 누구나 보기(이름·학번 없음). 학생은 신청·취소할 때 순번(last, q)만 함께 바꿀 수 있음
     match /courses/{id} {
       allow read: if true;
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (isStudent()
+      allow create, delete: if can('program');
+      allow update: if can('program') || (isStudent()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['last','q'])
         && (
           // 신청: 순번 +1, 목록 끝에 추가, 정원+예비 안, 같은 순번의 신청서가 함께 생김
@@ -144,12 +163,12 @@ service cloud.firestore {
     }
     // 신청서: 관리자와 본인만 읽기. 문서ID = 행사ID_시간칸_학생열쇠 (같은 시간칸에 하나만)
     match /enroll/{id} {
-      allow read: if isAdmin() || (isStudent() && (resource == null || resource.data.key == me().key));
-      allow update: if isAdmin();
+      allow read: if can('program') || (isStudent() && (resource == null || resource.data.key == me().key));
+      allow update: if can('program');
       // 취소할 때는 강좌 순번 목록에서도 함께 빠져야 함 (자리만 차지하는 유령 신청 방지)
-      allow delete: if isAdmin() || (isStudent() && resource.data.key == me().key && progOpen(resource.data.programId)
+      allow delete: if can('program') || (isStudent() && resource.data.key == me().key && progOpen(resource.data.programId)
         && !getAfter(/databases/$(database)/documents/courses/$(resource.data.courseId)).data.q.hasAny([resource.data.pos]));
-      allow create: if isAdmin() || (isStudent()
+      allow create: if can('program') || (isStudent()
         && request.resource.data.keys().hasOnly(['programId','courseId','slot','key','sid','name','pos','at','year'])
         && request.resource.data.key == me().key
         && request.resource.data.sid == me().sid
@@ -167,8 +186,8 @@ service cloud.firestore {
     // ===== 디벗 =====
     // 디벗 기기대장: 학번·시리얼만. 이름·구글 계정은 저장할 수 없음
     match /devices/{id} {
-      allow read, delete: if isAdmin();
-      allow create, update: if isAdmin() && !request.resource.data.keys().hasAny(['name', 'account']);
+      allow read, delete: if can('dibut');
+      allow create, update: if can('dibut') && !request.resource.data.keys().hasAny(['name', 'account']);
     }
 
     function sidOk(d) {
@@ -177,7 +196,7 @@ service cloud.firestore {
 
     // 구글 비밀번호 재설정 요청: 누구나 '검토 중'으로만 신청, 읽기·처리는 관리자만 (비밀번호는 저장하지 않음)
     match /pwRequests/{id} {
-      allow read, update, delete: if isAdmin();
+      allow read, update, delete: if can('dibut');
       allow create: if request.resource.data.keys().hasOnly(['sid','name','reason','status','adminNote','createdAt'])
         && request.resource.data.status == 'pending'
         && request.resource.data.adminNote == ''
@@ -188,7 +207,7 @@ service cloud.firestore {
 
     // 앱·사이트 허용 신청
     match /appRequests/{id} {
-      allow read, update, delete: if isAdmin();
+      allow read, update, delete: if can('dibut');
       allow create: if request.resource.data.keys().hasOnly(['sid','name','kind','title','url','purpose','key','googleAuth','status','adminNote','createdAt'])
         && request.resource.data.get('googleAuth', false) is bool
         && request.resource.data.status == 'pending'
@@ -205,8 +224,8 @@ service cloud.firestore {
     // 디벗 신청 결과 요약 (제목·상태·메모 + 이름·PIN을 해시로 바꾼 조회 열쇠만, 이름·학번·PIN 없음)
     match /dibutStatus/{id} {
       allow read: if true;
-      allow update, delete: if isAdmin();
-      allow create: if isAdmin() || (
+      allow update, delete: if can('dibut');
+      allow create: if can('dibut') || (
         request.resource.data.keys().hasOnly(['kind','lookup','title','status','note','createdAt'])
         && request.resource.data.status == 'pending'
         && request.resource.data.note == ''

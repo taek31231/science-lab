@@ -316,3 +316,20 @@ details.card > summary { cursor: pointer; }
 details.card[open] > summary { margin-bottom: 10px; }
 tr.prog-row { cursor: pointer; }
 tr.prog-row:hover > td { background: #eef2ff; }
+
+/* 입력 제한 안내 (이름·지도교사: 한글만, 수량: 한글·숫자) */
+.only-tip { position: fixed; z-index: 1000; background: #111827; color: #fff; font-size: 12px; padding: 5px 9px; border-radius: 6px; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.only-tip[hidden] { display: none; }
+input.only-bad { outline: 2px solid #ef4444 !important; background: #fef2f2 !important; }
+
+/* MSDS 확인 */
+.msds-list { display: grid; gap: 10px; margin: 10px 0; }
+.msds-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; }
+.msds-row b { min-width: 140px; }
+.msds-row.ok { border-color: #86efac; background: #f0fdf4; }
+.msds-steps { margin: 6px 0 0; padding-left: 20px; line-height: 1.9; }
+.reag-detail { margin: 4px 0; }
+.reag-detail summary { cursor: pointer; }
+.reag-detail dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; margin: 6px 0 0; font-size: 13px; }
+.reag-detail dt { color: #6b7280; }
+.reag-detail dd { margin: 0; white-space: pre-wrap; }

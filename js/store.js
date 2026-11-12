@@ -11,7 +11,7 @@
 //   statusBoard/{신청ID}       팀명으로 조회하는 신청 결과 (이름·학번 없이 팀명·일시·상태만) - 공개
 //   events/{ID}                캘린더 일정 (승인된 실험실 사용, 과학행사) - 공개
 //   hours/{학년도_학번}        과학·수학 이수시간 (이름 없이 학번만) - 단건 조회만 공개
-//   admins/{uid}               관리자 계정 목록 (Firebase 콘솔에서 직접 추가)
+//   admins/{uid}               관리자 계정 {name, email, roles:[master|lab|program|dibut]} (마스터가 사이트에서 관리)
 
 (function () {
   const isDemo = !window.FIREBASE_CONFIG.apiKey || /[?&]demo=1/.test(location.search);
@@ -58,6 +58,7 @@
       ? { ...base, date: r.date || "", start: r.start || "", end: r.end || "", lab: r.lab || "" }
       : { ...base, useDate: r.useDate || "", itemCount: (r.items || []).length, total: itemsSum(r.items) };
   }
+  const rolesOf = (a) => (Array.isArray(a && a.roles) && a.roles.length ? a.roles : ["master"]);
   const inRange = (e, range) => !range || (e.start >= range.from && e.start < range.to);
   const byCreatedDesc = (a, b) => b.createdAt - a.createdAt;
 
@@ -117,8 +118,8 @@
       save(data);
       return data;
     }
-    let authed = false;
-    try { authed = sessionStorage.getItem("sci-demo-admin") === "1"; } catch {}
+    let authed = null; // 로그인한 관리자의 권한 목록 (예: ["lab"]), 로그아웃이면 null
+    try { authed = JSON.parse(sessionStorage.getItem("sci-demo-admin")); if (!Array.isArray(authed)) authed = null; } catch {}
     const listeners = [];
     const ofYear = (obj, y) => Object.values(obj).filter((r) => r.year === y);
 
@@ -202,9 +203,30 @@
         for (const [k, v] of Object.entries(d.events)) if (inRange(v, range)) { delete d.events[k]; n++; }
         save(d); return n;
       },
-      async login() { authed = true; try { sessionStorage.setItem("sci-demo-admin", "1"); } catch {} listeners.forEach((f) => f(true)); },
-      async logout() { authed = false; try { sessionStorage.removeItem("sci-demo-admin"); } catch {} listeners.forEach((f) => f(false)); },
-      onAuth(cb) { listeners.push(cb); cb(authed); }
+      // 데모: 로그인 화면에서 고른 권한으로 들어감 (권한별 화면 연습용)
+      async login(email, pw, role) {
+        authed = [role || "master"];
+        try { sessionStorage.setItem("sci-demo-admin", JSON.stringify(authed)); } catch {}
+        listeners.forEach((f) => f(authed));
+      },
+      async logout() { authed = null; try { sessionStorage.removeItem("sci-demo-admin"); } catch {} listeners.forEach((f) => f(null)); },
+      onAuth(cb) { listeners.push(cb); cb(authed); },
+      // 관리자 계정 (데모에서는 이 브라우저에만 저장)
+      async listAdmins() {
+        const d = load();
+        d.admins ||= { demo_master: { uid: "demo_master", name: "과학정보부장(데모)", email: "master@demo", roles: ["master"] },
+          demo_lab: { uid: "demo_lab", name: "과학실무사(데모)", email: "lab@demo", roles: ["lab"] } };
+        save(d); return Object.values(d.admins);
+      },
+      async createAdmin(email, pw, name, roles) {
+        const d = load(); d.admins ||= {}; const id = uid();
+        d.admins[id] = { uid: id, email, name, roles }; save(d);
+      },
+      async addAdminByUid(id, name, roles) { const d = load(); d.admins ||= {}; d.admins[id] = { uid: id, email: "", name, roles }; save(d); },
+      async saveAdmin(id, name, roles) { const d = load(); d.admins[id] = { ...d.admins[id], name, roles }; save(d); },
+      async removeAdmin(id) { const d = load(); delete d.admins[id]; save(d); },
+      async sendReset() {},
+      myUid: () => "demo_master"
     };
     return api;
   }
@@ -359,13 +381,35 @@
         if (!a.exists) { await auth.signOut(); throw new Error("관리자로 등록되지 않은 계정입니다"); }
       },
       async logout() { await auth.signOut(); },
+      // cb(권한 목록 | null). admins 문서에 roles가 없으면(예전 방식으로 콘솔에서 만든 계정) 마스터
       onAuth(cb) {
         auth.onAuthStateChanged(async (u) => {
-          if (!u) return cb(false);
+          if (!u) return cb(null);
           const a = await db.collection("admins").doc(u.uid).get().catch(() => null);
-          cb(!!(a && a.exists));
+          cb(a && a.exists ? rolesOf(a.data()) : null);
         });
-      }
+      },
+      myUid: () => auth.currentUser && auth.currentUser.uid,
+      // ----- 관리자 계정 관리 (마스터만) -----
+      async listAdmins() { return (await db.collection("admins").get()).docs.map((x) => ({ uid: x.id, ...x.data(), roles: rolesOf(x.data()) })); },
+      // 새 계정 만들기: 보조 앱으로 만들어서 지금 로그인한 마스터는 그대로 유지
+      async createAdmin(email, pw, name, roles) {
+        const sec = firebase.apps.find((a) => a.name === "adminMaker") || firebase.initializeApp(window.FIREBASE_CONFIG, "adminMaker");
+        let newUid;
+        try {
+          const c = await sec.auth().createUserWithEmailAndPassword(email, pw);
+          newUid = c.user.uid;
+        } catch (e) {
+          if (e.code === "auth/email-already-in-use") throw new Error("이미 있는 이메일입니다. Firebase 콘솔 → Authentication에서 그 계정의 UID를 확인해 아래 'UID로 추가'를 쓰세요.");
+          if (e.code === "auth/weak-password") throw new Error("비밀번호는 6자 이상이어야 합니다.");
+          throw e;
+        } finally { await sec.auth().signOut().catch(() => {}); }
+        await db.collection("admins").doc(newUid).set({ name, email, roles });
+      },
+      async addAdminByUid(id, name, roles) { await db.collection("admins").doc(id).set({ name, email: "", roles }); },
+      async saveAdmin(id, name, roles) { await db.collection("admins").doc(id).set({ name, roles }, { merge: true }); },
+      async removeAdmin(id) { await db.collection("admins").doc(id).delete(); },
+      async sendReset(email) { auth.languageCode = "ko"; await auth.sendPasswordResetEmail(email); }
     };
     return api;
   }

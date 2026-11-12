@@ -6,6 +6,9 @@
   const ICONS = { lab: "🧪", purchase: "🛒", pw: "🔑", app: "📱" };
   // 알림창 항목을 누르면 갈 관리자 화면: [관리자 탭, 디벗 관리 안쪽 탭]
   const GOTO = { lab: ["requests"], purchase: ["purchases"], pw: ["dibut", "pw"], app: ["dibut", "apps"] };
+  // 알림 종류마다 필요한 관리자 권한 (맡은 업무만 알림을 받음)
+  const ROLE = { lab: "lab", purchase: "lab", pw: "dibut", app: "dibut" };
+  let mine = Object.keys(KINDS); // 이 계정이 받을 수 있는 종류
   let counts = {}, items = {}, unsubs = [], timer = null, lastTotal = null, installEvt = null;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const ms = (t) => (t && t.toMillis ? t.toMillis() : +t || 0);
@@ -53,7 +56,7 @@
   // 이 컴퓨터에서 받을 알림 종류 (브라우저에 저장, 기본: 모두 켬)
   const PREF = "sci-notify-kinds";
   let prefs = (() => { try { return JSON.parse(localStorage.getItem(PREF)) || {}; } catch { return {}; } })();
-  const isOn = (k) => prefs[k] !== false;
+  const isOn = (k) => mine.includes(k) && prefs[k] !== false;
   const myTotal = () => Object.keys(KINDS).filter(isOn).reduce((a, k) => a + (counts[k] || 0), 0);
   function setPref(k, on) {
     prefs = { ...prefs, [k]: on };
@@ -118,7 +121,7 @@
     panel.innerHTML = `
       <div class="bell-head"><b>대기 중인 신청 ${list.length}건</b>
         <div class="bell-prefs"><span class="muted small">이 컴퓨터에서 받을 알림</span>
-          ${Object.keys(KINDS).map((k) => `<label class="bell-pref ${isOn(k) ? "on" : ""}"><input type="checkbox" data-pref="${k}" ${isOn(k) ? "checked" : ""}>${ICONS[k]} ${KINDS[k]} <b>${(items[k] || []).length}</b></label>`).join("")}
+          ${mine.map((k) => `<label class="bell-pref ${isOn(k) ? "on" : ""}"><input type="checkbox" data-pref="${k}" ${isOn(k) ? "checked" : ""}>${ICONS[k]} ${KINDS[k]} <b>${(items[k] || []).length}</b></label>`).join("")}
         </div></div>
       <div class="bell-list">${list.map((x, i) => `
         <button type="button" class="bell-item ${x.at > s ? "new" : ""}" data-i="${i}">
@@ -147,14 +150,17 @@
   }
 
   // 대기 건수 세기 시작/멈춤 (관리자 로그인 동안만)
-  function start() {
+  function start(can) {
     stop();
+    mine = Object.keys(KINDS).filter((k) => !can || can(ROLE[k]));
+    if (!mine.length) return; // 행사·과중 기획만 맡은 계정: 처리할 신청 알림 없음
     if (window.Store.isDemo) {
       const tick = () => {
         const get = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
         const s = get("sci-demo-v5"), d = get("sci-dibut-demo-v1");
         const pend = (k, o) => Object.values(o || {}).filter((r) => r.status === "pending").map((r) => summarize(k, r));
-        items = { lab: pend("lab", s.requests), purchase: pend("purchase", s.purchases), pw: pend("pw", d.pw), app: pend("app", d.apps) };
+        const all = { lab: pend("lab", s.requests), purchase: pend("purchase", s.purchases), pw: pend("pw", d.pw), app: pend("app", d.apps) };
+        items = Object.fromEntries(mine.map((k) => [k, all[k]]));
         counts = Object.fromEntries(Object.entries(items).map(([k, v]) => [k, v.length]));
         show();
       };
@@ -164,11 +170,13 @@
     const db = firebase.firestore();
     const cols = { lab: "labRequests", purchase: "purchaseRequests", pw: "pwRequests", app: "appRequests" };
     let ready = 0;
-    for (const [k, col] of Object.entries(cols)) {
+    const need = mine.length;
+    for (const k of mine) {
+      const col = cols[k];
       unsubs.push(db.collection(col).where("status", "==", "pending").onSnapshot((snap) => {
         items[k] = snap.docs.map((x) => summarize(k, { id: x.id, ...x.data() }));
         counts[k] = snap.size;
-        if (ready < 4) { ready++; if (ready < 4) return; } // 처음엔 네 가지를 다 받은 뒤 한 번에 표시 (알림 안 띄움)
+        if (ready < need) { ready++; if (ready < need) return; } // 처음엔 맡은 종류를 다 받은 뒤 한 번에 표시 (알림 안 띄움)
         show();
       }, () => {}));
     }

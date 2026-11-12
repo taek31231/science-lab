@@ -14,7 +14,7 @@ window.SITE = {
   schoolName: "용산고등학교",
   deptName: "과학정보부",
   targetHours: 40, // 과학·수학 연간 이수 목표 시간
-  labs: ["물리실험실", "화학실험실", "생명과학실험실", "지구과학실험실"],
+  labs: ["물리실험실", "화학실험실", "생명과학실험실", "지구과학실험실", "융합과학실"],
   purposes: ["과학 동아리", "수업 실험", "개인/모둠 탐구", "기타"],
   eventTypes: {
     lab:   { label: "실험실 사용", color: "#2563eb" },
@@ -35,6 +35,13 @@ window.SITE = {
     hold: "보류",
     canceled: "구매취소",
     handed: "인계완료"
+  },
+  // 관리자 권한: 마스터는 모든 탭 + 관리자 계정 관리 + 학년도 정리, 나머지는 맡은 업무 탭만
+  roles: {
+    master:  { label: "마스터",          desc: "모든 탭, 관리자 계정·권한 관리, 학년도 정리" },
+    lab:     { label: "과학실 운영",     desc: "실험실 신청 승인, 물품 구입 신청 처리" },
+    program: { label: "행사·과중 기획",  desc: "행사 일정, 수강신청, 이수시간 입력·현황" },
+    dibut:   { label: "디벗",            desc: "디벗 기기·신청 처리, 계정 CSV, 구글 계정 명단" }
   },
   eventStatus: {
     scheduled: "예정",
