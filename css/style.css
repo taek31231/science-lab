@@ -347,3 +347,10 @@ input.only-bad { outline: 2px solid #ef4444 !important; background: #fef2f2 !imp
 .rg-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .hz { font-size: 12px; color: #b91c1c; border: 1px solid #fca5a5; background: #fff1f2; border-radius: 4px; padding: 1px 6px; font-weight: 600; }
 #msdsOther[hidden] { display: none; }
+
+/* 과학행사 */
+.contest-apply { margin-top: 10px; padding: 12px; border: 1px dashed #cbd5e1; border-radius: 10px; }
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px; font-size: 13px; }
+.team-grid > div { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; }
+/* 내용이 긴 대화상자(행사 만들기 등)는 화면 안에서 스크롤 */
+.sigpad.dlg { max-height: calc(100vh - 32px); overflow-y: auto; }

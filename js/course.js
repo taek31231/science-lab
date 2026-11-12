@@ -23,7 +23,10 @@
   const fail = (msg) => { const e = new Error(msg); e.userMsg = msg; throw e; };
   const STU_DOMAIN = "stu.yongsan-sci.invalid"; // 로그인용 가짜 주소 (메일은 보내지 않음)
   const TEST_SID = "19999"; // 교사·시험용 계정에 붙는 번호 (1학년 99반 99번: 실제 학생과 겹치지 않음)
-  const KIND = { camp: "심화실험 캠프", lecture: "이공계 진로특강", other: "기타" };
+  // 과학행사(대회형: 신청 → 선발 → 활동·출석 → 이수시간)는 contest.js가 맡음
+  const CONTEST = { invent: "발명품 한마당", debate: "과학토론 한마당", reason: "과학추론 한마당", solve: "창의적 문제해결 한마당" };
+  const KIND = { camp: "심화실험 캠프", lecture: "이공계 진로특강", ...CONTEST, other: "기타" };
+  const isContest = (p) => p && p.kind in CONTEST;
 
   // ---------- 학생 열쇠 ----------
   // 계정 아이디: 앞뒤 공백·@도메인 제거, 소문자.  이름: 공백 제거, 동명이인 표시(끝의 영문 A·B…) 제거
@@ -60,7 +63,7 @@
   //  데이터
   // =====================================================================
   function demoStore() {
-    const K = "sci-course-demo-v2", ME = "sci-course-me";
+    const K = "sci-course-demo-v3", ME = "sci-course-me";
     function seed() {
       const y = window.schoolYear(), now = Date.now();
       const day = (n) => window.localDate(new Date(now + n * 864e5));
@@ -97,7 +100,7 @@
       };
     }
     // 데모 학생 명단 (계정 아이디 / 이름 / 학번)
-    const DEMO_ROSTER = [["demo", "데모", "10101"]];
+    const DEMO_ROSTER = [["demo", "데모", "10101"], ["demo2", "데모둘", "10102"], ["demo3", "데모셋", "20201"]];
     let cache = null;
     async function load() {
       if (cache) return cache;
@@ -123,6 +126,7 @@
         for (const [k, c] of Object.entries(d.courses)) if (c.programId === id) delete d.courses[k];
         for (const [k, e] of Object.entries(d.enroll)) if (e.programId === id) delete d.enroll[k];
         save(d);
+        await window.Contest.store().deleteAll(id);
       },
       async listCourses(programId) { const d = await load(); return Object.values(d.courses).filter((c) => c.programId === programId); },
       async saveCourse(c) {
@@ -236,7 +240,8 @@
       async deleteProgram(id) {
         const cs = await db.collection("courses").where("programId", "==", id).get();
         const es = await db.collection("enroll").where("programId", "==", id).get();
-        await chunked([...es.docs, ...cs.docs], (b, x) => b.delete(x.ref));
+        const ns = await db.collection("entries").where("programId", "==", id).get();
+        await chunked([...es.docs, ...cs.docs, ...ns.docs], (b, x) => b.delete(x.ref));
         await db.collection("programs").doc(id).delete();
       },
       async listCourses(programId) { return rows(await db.collection("courses").where("programId", "==", programId).get()); },
@@ -355,7 +360,7 @@
     view.innerHTML = `
       <div class="actions" style="justify-content:space-between"><h1>수강신청</h1>
         <div class="actions"><span><b>${esc(me.sid)}</b> ${esc(me.name)}</span><button class="btn ghost sm" id="csOut">로그아웃</button></div></div>
-      <p class="lead">강좌를 <b>담으면 바로 신청</b>됩니다. 신청한 순서대로 정원까지 <b>확정</b>, 그 뒤는 <b>예비</b>이며 확정자가 취소하면 예비가 차례로 올라갑니다. 신청 기간 안에는 언제든 취소·변경할 수 있습니다.</p>
+      <p class="lead">과학행사(한마당)는 신청 → 선발 → 참가 순서이고, 강좌는 <b>담으면 바로 신청</b>됩니다. 신청한 순서대로 정원까지 <b>확정</b>, 그 뒤는 <b>예비</b>이며 확정자가 취소하면 예비가 차례로 올라갑니다. 신청 기간 안에는 언제든 취소·변경할 수 있습니다.</p>
       ${programs.length ? programs.map((p) => `<section class="card" data-prog="${esc(p.id)}"><p class="muted">불러오는 중…</p></section>`).join("")
         : '<div class="card"><p class="muted">지금 신청할 수 있는 행사가 없습니다.</p></div>'}`;
     $("#csOut").onclick = async () => { await store().logout(); studentView(view); };
@@ -376,6 +381,7 @@
   }
 
   async function drawProgram(box, p, me, grade, redraw) {
+    if (isContest(p)) return window.Contest.drawStudent(box, p, me, grade, redraw);
     const [courses, mine] = await Promise.all([store().listCourses(p.id), store().myEnroll(p.id)]);
     const ph = phase(p), canGrade = (p.grades || "123").includes(grade);
     const bySlot = {};
@@ -436,7 +442,7 @@
     const saved = (() => { try { return JSON.parse(localStorage.getItem("sci-course-login")) || {}; } catch { return {}; } })();
     view.innerHTML = `
       <h1>수강신청 로그인</h1>
-      <p class="lead">심화실험 캠프·이공계 진로특강 등 과학중점 행사 수강신청입니다. <b>학교 구글 계정 아이디</b>와 <b>이름</b>, 그리고 <b>PIN 4자리</b>로 로그인합니다.</p>
+      <p class="lead">심화실험 캠프·이공계 진로특강·과학행사(한마당) 신청입니다. <b>학교 구글 계정 아이디</b>와 <b>이름</b>, 그리고 <b>PIN 4자리</b>로 로그인합니다.</p>
       <form class="card" id="csLogin" style="max-width:460px">
         <div class="row"><label>학교 구글 계정 아이디 <span class="muted small">(@${esc(window.SITE.dibut.domain)} 앞부분만 적어도 됨)</span><input name="acct" required autocomplete="off" value="${esc(saved.acct || "")}"></label></div>
         <div class="row"><label>이름<input name="name" required maxlength="20" autocomplete="off" value="${esc(saved.name || "")}"></label></div>
@@ -489,6 +495,7 @@
     el.innerHTML = `<div class="card actions">${pick}</div><div id="csInner"></div>`;
     $("#csProg").onchange = (e) => { selProg = e.target.value; again(); };
     const p = programs.find((x) => x.id === selProg);
+    if (isContest(p)) return sub === "status" ? window.Contest.adminStatus($("#csInner"), p, again) : window.Contest.adminAttend($("#csInner"), p, again);
     const [courses, enroll] = await Promise.all([store().listCourses(p.id), store().listEnroll(p.id)]);
     courses.sort((a, b) => (a.date + a.period + a.code).localeCompare(b.date + b.period + b.code));
     const inner = $("#csInner");
@@ -536,10 +543,11 @@
       el.innerHTML = `
         <div class="card">
           <div class="actions" style="justify-content:space-between"><h2 style="margin:0">${year}학년도 행사</h2><button class="btn sm" id="pNew">+ 새 행사</button></div>
-          <p class="muted small">행사(예: 심화실험 캠프 한 회차)를 만들고, 행사를 눌러 들어가 그 안에 강좌를 추가합니다. 강좌 날짜는 일정 캘린더에 자동으로 올라갑니다.</p>
+          <p class="muted small">행사(예: 심화실험 캠프 한 회차)를 만들고, 행사를 눌러 들어가 그 안에 강좌를 추가합니다. 강좌 날짜는 일정 캘린더에 자동으로 올라갑니다.
+            <b>과학행사</b>(발명품·과학토론·과학추론·창의적 문제해결 한마당)는 강좌 없이 행사 하나로 신청 → 선발 → 출석 → 이수시간까지 처리합니다.</p>
           <div class="table-wrap"><table><tr><th>행사</th><th>강좌</th><th>신청 기간</th><th>대상</th><th>상태</th></tr>
           ${programs.map((x, i) => `<tr class="prog-row" data-open="${esc(x.id)}"><td><b>${esc(x.title)}</b><br><span class="muted small">${KIND[x.kind] || ""}</span></td>
-            <td>${counts[i]}개</td><td class="small">${fmtDT(x.openAt)} ~<br>${fmtDT(x.closeAt)}</td><td>${[...(x.grades || "")].join("·")}학년</td>
+            <td>${isContest(x) ? "과학행사" : counts[i] + "개"}</td><td class="small">${fmtDT(x.openAt)} ~<br>${fmtDT(x.closeAt)}</td><td>${[...(x.grades || "")].join("·")}학년</td>
             <td>${PHASE[phase(x)]} <span class="muted">›</span></td></tr>`).join("")
             || '<tr><td colspan="5" class="muted">아직 행사가 없습니다. [+ 새 행사]로 만드세요.</td></tr>'}
           </table></div>
@@ -565,7 +573,8 @@
       if (prompt(`'${p.title}'과 그 강좌·신청 기록을 모두 삭제합니다. 되돌릴 수 없습니다.\n확인하려면 '삭제'를 입력하세요.`) !== "삭제") return;
       await store().deleteProgram(p.id); await syncCalendar(p, []); openProg = ""; again();
     };
-    drawCourses($("#courseBox"), p, again);
+    if (isContest(p)) window.Contest.adminSetup($("#courseBox"), p, again);
+    else drawCourses($("#courseBox"), p, again);
   }
 
   async function programDialog(p, again) {
@@ -580,14 +589,20 @@
       <div class="row"><label>신청 시작<input type="datetime-local" name="openAt" required value="${toLocalInput(p.openAt || now)}"></label>
         <label>신청 마감<input type="datetime-local" name="closeAt" required value="${toLocalInput(p.closeAt || now + 7 * 864e5)}"></label></div>
       <div class="row"><label>학생 화면 안내 문구 (선택)<input name="note" value="${esc(p.note || "")}"></label></div>
+      <div data-contest>${window.Contest.dialogFields(p)}</div>
       <div class="row" data-lec><label>배포용 명단 아래 안내 (특강, 한 줄에 하나 · '신청 취소는 마감 시각까지' 줄은 자동)<textarea name="printNote" rows="5">${esc(p.printNote ?? `* 신청 후 강연에 불참시(또는 보고서 미제출 시) 페널티가 발생합니다.\n   (페널티: ${p.year}학년도 이공계 진로특강 참가자격 박탈)\n* 강연을 들은 후 정해진 기한까지 강연보고서를 제출\n  (강연보고서는 온라인 설문 조사로 대체)`)}</textarea></label></div>
       </div><div class="actions" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn ghost sm" data-x>취소</button><button class="btn sm">저장</button></div></form>`;
     document.body.appendChild(back);
     const f = back.querySelector("form");
     const lecRow = f.querySelector("[data-lec]");
-    const showLec = () => (lecRow.hidden = f.elements.kind.value !== "lecture");
+    const conBox = f.querySelector("[data-contest]");
+    const showLec = () => { lecRow.hidden = f.elements.kind.value !== "lecture"; conBox.hidden = !(f.elements.kind.value in CONTEST); };
     f.elements.kind.addEventListener("change", showLec); showLec();
-    f.elements.kind.onchange = () => { if (!f.elements.activity.value) f.elements.activity.value = { camp: "심화실험 캠프", lecture: "이공계진로특강" }[f.elements.kind.value] || ""; };
+    const ACT = { camp: "심화실험 캠프", lecture: "이공계진로특강", ...CONTEST };
+    f.elements.kind.onchange = () => {
+      if (!f.elements.activity.value || Object.values(ACT).includes(f.elements.activity.value)) f.elements.activity.value = ACT[f.elements.kind.value] || "";
+      if (f.elements.kind.value in CONTEST) window.Contest.kindDefaults(f, f.elements.kind.value);
+    };
     if (!p.id) f.elements.kind.onchange();
     back.querySelector("[data-x]").onclick = () => back.remove();
     f.onsubmit = (e) => {
@@ -596,9 +611,15 @@
       const openAt = new Date(d.openAt).getTime(), closeAt = new Date(d.closeAt).getTime();
       if (!(closeAt > openAt)) return alert("마감이 시작보다 늦어야 합니다.");
       busy(f.querySelector("button:last-child"), async () => {
-        const np = { ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim(), printNote: d.printNote || "" };
+        let np = { ...(p.id ? { id: p.id } : {}), year: p.year, kind: d.kind, grades: d.grades, title: d.title.trim(), activity: d.activity.trim(), openAt, closeAt, note: d.note.trim(), printNote: d.printNote || "" };
+        if (d.kind in CONTEST) {
+          const extra = window.Contest.readDialog(d);
+          if (extra.error) return alert(extra.error);
+          np = { ...np, ...extra, hoursDone: p.hoursDone || null };
+        }
         openProg = selProg = await store().saveProgram(np);
-        if (p.id) await syncCalendar({ ...np, id: p.id }); // 제목이 바뀌면 캘린더 일정 제목도
+        if (d.kind in CONTEST) await window.Contest.syncCalendar({ ...np, id: openProg });
+        else if (p.id) await syncCalendar({ ...np, id: p.id }); // 제목이 바뀌면 캘린더 일정 제목도
         back.remove(); again();
       });
     };
@@ -1023,5 +1044,7 @@
     };
   }
 
-  window.Course = { studentView, admin, rosterPanel };
+  // contest.js가 함께 쓰는 것
+  window.Course = { studentView, admin, rosterPanel,
+    _: { store, phase, PHASE, fmtDT, toLocalInput, dayLabel, busy, fail, esc, calPrefix, printWindow, KIND, CONTEST, normName, TEST_SID } };
 })();

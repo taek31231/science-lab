@@ -192,6 +192,56 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/courses/$(request.resource.data.courseId)).data.last == request.resource.data.pos);
     }
 
+    // ===== 과학행사 신청 (발명품·과학토론·과학추론·창의적 문제해결 한마당) =====
+    // 문서ID = 행사ID_학생열쇠 (한 행사에 한 번만). 관리자, 본인, 짝(서로의 학번이 partnerSid)만 읽기
+    function contestProg(pid) {
+      return get(/databases/$(database)/documents/programs/$(pid)).data;
+    }
+    match /entries/{id} {
+      allow read: if can('program') || (isStudent() && (resource == null || resource.data.key == me().key
+        || resource.data.get('partnerSid', '') == me().sid));
+      allow update: if can('program') || (isStudent() && progOpen(resource.data.programId) && (
+        // 본인: 작품·팀 이름만
+        (resource.data.key == me().key && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title'])
+          && request.resource.data.title is string && request.resource.data.title.size() <= 60)
+        ||
+        // 짝: 대표 신청서의 수락 여부만 (수락하면 내 신청서도 함께 생겨야 함)
+        (resource.data.get('partnerSid', '') == me().sid && resource.data.get('role', '') == 'lead'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pair'])
+          && (request.resource.data.pair == 'no'
+              || (request.resource.data.pair == 'ok'
+                  && existsAfter(/databases/$(database)/documents/entries/$(resource.data.programId + '_' + me().key))))
+      )));
+      // 취소: 본인, 신청 기간 안, 선발 전
+      allow delete: if can('program') || (isStudent() && resource.data.key == me().key
+        && progOpen(resource.data.programId) && resource.data.status == 'applied');
+      allow create: if can('program') || (isStudent()
+        && request.resource.data.keys().hasOnly(['programId','year','key','sid','name','at','status','role','partnerSid','partnerName','pair','leader','title'])
+        && id == request.resource.data.programId + '_' + me().key
+        && request.resource.data.key == me().key
+        && request.resource.data.sid == me().sid
+        && request.resource.data.name == me().name
+        && request.resource.data.status == 'applied'
+        && request.resource.data.at == request.time
+        && progOpen(request.resource.data.programId)
+        && contestProg(request.resource.data.programId).kind in ['invent','debate','reason','solve']
+        && contestProg(request.resource.data.programId).year == request.resource.data.year
+        && request.resource.data.sid.matches('^[' + contestProg(request.resource.data.programId).grades + '][0-9]{4}$')
+        && request.resource.data.get('title', '') is string && request.resource.data.get('title', '').size() <= 60
+        && (
+          request.resource.data.role == 'solo'
+          || (request.resource.data.role == 'lead' && request.resource.data.pair == 'wait'
+              && request.resource.data.partnerSid is string && request.resource.data.partnerSid.matches('^[1-3][0-9]{4}$')
+              && request.resource.data.partnerSid != me().sid
+              && request.resource.data.partnerName is string && request.resource.data.partnerName.size() < 20)
+          // 짝: 나를 짝으로 적은 대표 신청서가 있어야 함
+          || (request.resource.data.role == 'mate' && request.resource.data.pair == 'ok'
+              && get(/databases/$(database)/documents/entries/$(request.resource.data.leader)).data.partnerSid == me().sid
+              && get(/databases/$(database)/documents/entries/$(request.resource.data.leader)).data.programId == request.resource.data.programId
+              && request.resource.data.partnerSid == get(/databases/$(database)/documents/entries/$(request.resource.data.leader)).data.sid)
+        ));
+    }
+
     // ===== 디벗 =====
     // 디벗 기기대장: 학번·시리얼만. 이름·구글 계정은 저장할 수 없음
     match /devices/{id} {

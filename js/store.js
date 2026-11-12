@@ -255,6 +255,7 @@
         db.collection("statusBoard").where("year", "==", y),
         db.collection("hours").where("year", "==", y),
         db.collection("enroll").where("year", "==", y),
+        db.collection("entries").where("year", "==", y),
         db.collection("courses").where("year", "==", y),
         db.collection("programs").where("year", "==", y),
         eventsQuery(r)
