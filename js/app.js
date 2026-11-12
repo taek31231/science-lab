@@ -141,21 +141,29 @@
     }));
   }
   const MSDS_STEPS = `<ol class="msds-steps small">
-      <li>[안전보건공단 MSDS ↗]를 누르면 물질명이 복사되고 사이트가 열립니다.</li>
+      <li><b>학교 시약 대장에 있는 시약</b>은 위 검색 칸에서 찾아 요약 MSDS를 끝까지 읽고 담으면, 조사서가 자동으로 채워지고 확인도 끝납니다.</li>
+      <li>대장에 없는 시약은 [안전보건공단 MSDS ↗]를 누르면 물질명이 복사되고 사이트가 열립니다.</li>
       <li>통합 검색 칸에 붙여넣기(Ctrl+V) → 찾는 물질 선택 → <b>'MSDS 요약정보'</b>.</li>
       <li>유해·위험 문구, 응급조치(눈·피부), 물리화학적 성질, 화재 시 대처를 <b>조사서에 적은 내용과 대조</b>합니다.</li>
       <li>다르거나 빠진 내용은 조사서를 고친 뒤 '확인'을 체크합니다.</li></ol>`;
   // 시약 목록 + 하나씩 '확인' 체크. seen: 확인한 물질명 목록. onChange(seen)
-  function msdsPanel(el, names, seen, onChange) {
+  // all: 학교 시약 대장 (대장에 있는 시약은 사이트 안에서 요약 MSDS를 읽으면 확인 처리)
+  function msdsPanel(el, names, seen, onChange, all = []) {
     const draw = () => {
       el.innerHTML = names.length ? `
         <div class="msds-list">${names.map((n) => `
-          <div class="msds-row ${seen.includes(n) ? "ok" : ""}"><b>🧪 ${esc(n)}</b>${msdsBtns(n)}
+          <div class="msds-row ${seen.includes(n) ? "ok" : ""}"><b>🧪 ${esc(n)}</b>${window.Reagents.find(all, n)
+            ? `<button type="button" class="btn sm" data-rg="${esc(n)}">요약 MSDS 읽기</button><span class="muted small">학교 시약 대장</span>`
+            : msdsBtns(n)}
             <label class="inline-check"><input type="checkbox" data-seen="${esc(n)}" ${seen.includes(n) ? "checked" : ""}> MSDS와 조사서 대조 확인</label></div>`).join("")}
         </div>
         <p class="small ${names.every((n) => seen.includes(n)) ? "ok-t" : "warn"}">${names.every((n) => seen.includes(n)) ? "✅ 모든 시약의 MSDS를 확인했습니다." : `확인할 시약 ${names.filter((n) => !seen.includes(n)).length}개 남음 (모두 확인해야 온라인 제출됩니다)`}</p>`
         : '<p class="muted small">시약·시액 조사서에 물질명을 적으면 여기에 나타납니다. 시약을 쓰지 않으면 확인할 것이 없습니다.</p>';
       bindMsds(el);
+      el.querySelectorAll("[data-rg]").forEach((b) => (b.onclick = async () => {
+        const n = b.dataset.rg;
+        if (await window.Reagents.showMsds(window.Reagents.find(all, n), { take: "읽었습니다" })) { seen = [...new Set([...seen, n])]; onChange(seen); draw(); }
+      }));
       el.querySelectorAll("[data-seen]").forEach((c) => (c.onchange = () => {
         const n = c.dataset.seen;
         seen = c.checked ? [...new Set([...seen, n])] : seen.filter((x) => x !== n);
@@ -163,7 +171,8 @@
       }));
     };
     draw();
-    return { update(newNames) { names = newNames; seen = seen.filter((n) => names.includes(n)); onChange(seen); draw(); } };
+    // cur: 바깥에서 바뀐 확인 목록 (검색 칸에서 '읽고 담기'를 한 경우)
+    return { update(newNames, cur) { names = newNames; if (cur) seen = cur; seen = seen.filter((n) => names.includes(n)); onChange(seen); draw(); } };
   }
   const reagentNames = (d) => [...new Set((d.reagents || []).map((r) => r && (r.name || "").trim()).filter(Boolean))];
   const MSDS_SEEN = "sci-msds-seen";
@@ -175,12 +184,14 @@
     view.innerHTML = `
       <h1>MSDS 확인</h1>
       <p class="lead">실험에 쓰는 시약의 물질안전보건자료(MSDS)를 안전보건공단 사이트에서 한 번 더 확인합니다.</p>
+      <div class="card"><h2>학교 시약 요약 MSDS</h2><div id="msdsSchool"></div></div>
       <div class="card"><h2>작성 중인 실험실 신청서의 시약</h2>${MSDS_STEPS}<div id="msdsDraft"></div>
         <div class="actions"><a class="btn" href="#/apply">실험실 신청서로 돌아가기</a></div></div>
-      <form class="card" id="msdsFind"><h2>다른 물질 찾아보기</h2>
+      <form class="card" id="msdsFind"><h2>학교 대장에 없는 물질 찾아보기 (안전보건공단)</h2>
         <div class="actions"><input name="q" placeholder="물질명 (예: 염산, 수산화 나트륨) 또는 CAS 번호" style="flex:1;min-width:220px" required>
           <button class="btn">찾기</button></div><div id="msdsOne" style="margin-top:10px"></div></form>`;
-    msdsPanel($("#msdsDraft"), names, ls.get(MSDS_SEEN) || [], (seen) => ls.set(MSDS_SEEN, seen));
+    const { all } = await window.Reagents.picker($("#msdsSchool"));
+    msdsPanel($("#msdsDraft"), names, ls.get(MSDS_SEEN) || [], (seen) => ls.set(MSDS_SEEN, seen), all);
     $("#msdsFind").addEventListener("submit", (e) => {
       e.preventDefault();
       const q = new FormData(e.target).get("q").trim(); if (!q) return;
@@ -207,23 +218,40 @@
       <p id="conflict" class="warn"></p>
       <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 사용하는 시약이 여러 개면 조사서를 추가하세요.
         이름·지도교사 칸은 한글만, 수량 칸은 한글·숫자만 입력됩니다.</p>
-      <details class="card" id="msdsCard"><summary><b>🧪 MSDS 확인</b> <span class="muted small" id="msdsSum"></span></summary>
+      <details class="card" id="msdsCard" open><summary><b>🧪 시약 담기 · MSDS 확인</b> <span class="muted small" id="msdsSum"></span></summary>
+        <p class="small" style="margin:8px 0 4px"><b>학교 시약에서 찾아 담기</b> — 요약 MSDS를 끝까지 읽으면 시약·시액 조사서가 자동으로 채워집니다.</p>
+        <div id="rgPick"></div>
         ${MSDS_STEPS}<div id="msdsBox"></div></details>
       <div class="sheet-scroll" id="sheets"></div>`;
     const box = $("#sheets");
     Forms.bindOnly(box);
     let seen = ls.get(MSDS_SEEN) || [];
     const msdsSum = () => { const n = reagentNames(data); $("#msdsSum").textContent = n.length ? `시약 ${n.length}개 중 ${n.filter((x) => seen.includes(x)).length}개 확인` : "시약 없음"; };
-    const msds = msdsPanel($("#msdsBox"), reagentNames(data), seen, (v) => { seen = v; ls.set(MSDS_SEEN, v); msdsSum(); });
+    const rg = await window.Reagents.picker($("#rgPick"), { onTake: (r) => {
+      // 담기: 같은 시약 조사서가 있으면 그 장, 없으면 빈 장, 그것도 없으면 새 장에 요약 MSDS를 채움
+      data = read();
+      const rs = data.reagents && data.reagents.length ? data.reagents : [{}];
+      const K = window.Reagents.keyOf;
+      let i = rs.findIndex((x) => x && K(x.name) === K(r.name));
+      if (i < 0) i = rs.findIndex((x) => !x || !Object.values(x).some(Boolean));
+      if (i < 0) { rs.push({}); i = rs.length - 1; }
+      rs[i] = { ...window.Reagents.toSheet(r) };
+      data.reagents = rs;
+      seen = [...new Set([...seen, r.name])]; ls.set(MSDS_SEEN, seen);
+      draw(); update();
+      box.querySelectorAll(".a4")[i + 1]?.scrollIntoView({ behavior: "smooth" });
+    } });
+    const msds = msdsPanel($("#msdsBox"), reagentNames(data), seen, (v) => { seen = v; ls.set(MSDS_SEEN, v); msdsSum(); }, rg.all);
     msdsSum();
     let lastNames = reagentNames(data).join("|");
+    let lastSeen = seen;
     const draw = () => { box.innerHTML = Forms.labSheets(data); };
     const read = () => ({ ...Forms.readForm(box), team: $("#team").value.trim() });
     const update = () => {
       data = { ...Forms.syncMirrors(box).data, team: $("#team").value.trim() };
       ls.set(DRAFT_LAB, data);
       const names = reagentNames(data);
-      if (names.join("|") !== lastNames) { lastNames = names.join("|"); msds.update(names); }
+      if (names.join("|") !== lastNames || seen !== lastSeen) { lastNames = names.join("|"); lastSeen = seen; msds.update(names, seen); }
       if (data.date && data.date !== eventsDate) {
         eventsDate = data.date;
         Store.listEvents({ from: data.date, to: addDays(data.date, 1) }).then((l) => { events = l; if (eventsDate === data.date) update(); }).catch(() => {});
@@ -463,7 +491,7 @@
       return;
     }
     // 탭마다 필요한 권한 (마스터는 모두)
-    const ALL_TABS = { requests: ["실험실 신청 승인", "lab"], purchases: ["물품 구입 신청", "lab"], events: ["행사 일정", "program"],
+    const ALL_TABS = { requests: ["실험실 신청 승인", "lab"], purchases: ["물품 구입 신청", "lab"], reagents: ["시약 대장", "lab"], events: ["행사 일정", "program"],
       course: ["수강신청", "program"], hours: ["이수시간 입력", "program"], hoursList: ["이수시간 현황", "program"],
       dibut: ["디벗 관리", "dibut"], accounts: ["관리자 계정", "master"], cleanup: ["학년도 정리", "master"] };
     const tabs = Object.fromEntries(Object.entries(ALL_TABS).filter(([, [, r]]) => can(r)).map(([k, [t]]) => [k, t]));
@@ -485,7 +513,7 @@
     window.AdminBadge.renderControl($("#badgeCtl"));
     $("#yearSel").onchange = (e) => { adminYear = +e.target.value; adminView(); };
     view.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => { adminTab = b.dataset.t; adminView(); }));
-    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, course: () => window.Course.admin($("#adminBody"), adminYear), hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, accounts: adminAccounts, dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
+    await ({ requests: adminRequests, purchases: adminPurchases, events: adminEvents, course: () => window.Course.admin($("#adminBody"), adminYear), hours: adminHours, hoursList: adminHoursList, cleanup: adminCleanup, accounts: adminAccounts, reagents: () => window.Reagents.admin($("#adminBody")), dibut: () => window.Dibut.admin($("#adminBody")) })[adminTab]();
   }
 
   // 서명 미리보기. 지도교사 서명 = 지도교사가 미리 허락했다는 뜻이므로 실무사는 바로 승인할 수 있음.
@@ -556,7 +584,9 @@
   }
 
   async function adminRequests() {
-    const reqs = await Store.listRequests(adminYear);
+    const [reqs, rgAll, rgStock] = await Promise.all([Store.listRequests(adminYear),
+      window.Reagents.list(true).catch(() => []), window.Reagents.listStock().catch(() => ({}))]);
+    const rgOf = (name) => window.Reagents.find(rgAll, name);
     const dates = reqs.filter((r) => r.date).map((r) => r.date).sort();
     const events = dates.length ? await Store.listEvents({ from: dates[0], to: addDays(dates[dates.length - 1], 1) }) : [];
     const body = $("#adminBody");
@@ -580,8 +610,10 @@
         <p class="muted" style="margin:0">재료·기자재: ${esc(mats.join(", ") || "없음")}</p>
         <p class="muted" style="margin:0">시약: ${esc(reag.join(", ") || "없음")}${reag.length ? (r.msdsOk ? ' <span class="badge approved">학생 MSDS 확인함</span>' : ' <span class="badge pending">MSDS 확인 기록 없음</span>') : ""}${r.plan?.title ? ` · 실험 제목: ${esc(r.plan.title)}` : ""}</p>
         ${(r.reagents || []).filter((x) => x && x.name).map((x) => `
-          <details class="reag-detail"><summary class="small">🧪 <b>${esc(x.name)}</b> 조사서 내용 보기 · MSDS와 대조</summary>
-            <div class="actions" style="margin-top:6px">${msdsBtns(x.name)}</div>
+          <details class="reag-detail"><summary class="small">🧪 <b>${esc(x.name)}</b> ${rgOf(x.name)
+              ? `<span class="muted">📍 ${esc(rgStock[rgOf(x.name).id]?.location || "위치 미입력")} · 보유 ${esc(rgStock[rgOf(x.name).id]?.qty || "-")}</span>`
+              : '<span class="warn">학교 시약 대장에 없음</span>'} · 조사서 내용 보기</summary>
+            <div class="actions" style="margin-top:6px">${rgOf(x.name) ? `<button type="button" class="btn sm" data-rgv="${esc(x.name)}">학교 요약 MSDS</button>` : ""}${msdsBtns(x.name)}</div>
             <dl>${[["유해·위험", x.hazard], ["눈에 들어갔을 때", x.eye], ["피부 접촉", x.skin], ["냄새", x.smell], ["녹는점", x.melt], ["끓는점", x.boil], ["인화점", x.flash],
               ["안정성·반응성", x.stability], ["화재 시 대처", x.fire], ["그 외", x.etc]].map(([k, v]) => `<dt>${k}</dt><dd>${v ? esc(v) : '<span class="warn">비어 있음</span>'}</dd>`).join("")}</dl>
           </details>`).join("")}
@@ -610,6 +642,7 @@
     }));
     bindTeacherCheck(body, "lab", byId);
     bindMsds(body);
+    body.querySelectorAll("[data-rgv]").forEach((b) => (b.onclick = () => { const r = rgOf(b.dataset.rgv); window.Reagents.showMsds(r, { stock: rgStock[r.id] }); }));
     body.querySelectorAll("[data-pdf]").forEach((b) => (b.onclick = () => {
       const r = byId[b.dataset.pdf];
       busy(b, () => Forms.dataToPDF("lab", r, `실험실사용신청서_${r.date}_${userList(r)[0]?.name || ""}.pdf`));

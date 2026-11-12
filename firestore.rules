@@ -73,6 +73,15 @@ service cloud.firestore {
             || existsAfter(/databases/$(database)/documents/purchaseRequests/$(id))));
     }
 
+    // 학교 시약 대장: 물질명·CAS·요약 MSDS는 누구나 보기(학생 신청서 검색용), 보관 위치·보유 수량은 과학실 운영만
+    match /reagents/{id} {
+      allow read: if true;
+      allow write: if can('lab');
+    }
+    match /reagentStock/{id} {
+      allow read, write: if can('lab');
+    }
+
     // 캘린더 일정: 누구나 보기
     //  - 실험실 사용 일정(type 'lab', 승인하면 자동 등록)은 과학실 운영
     //  - 그 밖의 행사 일정은 행사·과중 기획
