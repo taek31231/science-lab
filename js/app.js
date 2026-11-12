@@ -41,7 +41,7 @@
 
   // ---------- 라우터 ----------
   const routes = { "/": home, "/calendar": calendarView, "/apply": applyView, "/purchase": purchaseView,
-    "/status": statusView, "/hours": hoursView, "/msds": msdsView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q), "/course": () => window.Course.studentView(view) };
+    "/status": statusView, "/hours": hoursView, "/admin": adminView, "/dibut": (q) => window.Dibut.studentView(view, q), "/course": () => window.Course.studentView(view) };
 
   async function render() {
     const [path, qs] = (location.hash.slice(1) || "/").split("?");
@@ -76,7 +76,6 @@
       <div class="grid">
         ${tile("#/calendar", "📅", "일정 캘린더", "실험실 예약 현황과 행사 일정")}
         ${tile("#/apply", "🧪", "실험실 사용 신청", "신청서·시약 조사서·계획서 작성, PDF 저장")}
-        ${tile("#/msds", "⚗️", "MSDS 확인", "사용할 시약의 물질안전보건자료 한 번 더 확인")}
         ${tile("#/purchase", "🛒", "물품 구입 신청", "신청서 작성 후 PDF·엑셀로 저장")}
         ${tile("#/status", "✅", "신청 결과 조회", "팀명으로 승인 여부·구매 진행 상황 확인")}
         ${tile("#/course", "🎓", "수강신청", "심화실험 캠프·이공계 진로특강 신청")}
@@ -140,12 +139,7 @@
       if (name) { const t = b.textContent; b.textContent = `'${name}' 복사됨 → 검색창에 붙여넣기`; setTimeout(() => (b.textContent = t), 3000); }
     }));
   }
-  const MSDS_STEPS = `<ol class="msds-steps small">
-      <li><b>학교 시약 대장에 있는 시약</b>은 위 검색 칸에서 찾아 요약 MSDS를 끝까지 읽고 담으면, 조사서가 자동으로 채워지고 확인도 끝납니다.</li>
-      <li>대장에 없는 시약은 [안전보건공단 MSDS ↗]를 누르면 물질명이 복사되고 사이트가 열립니다.</li>
-      <li>통합 검색 칸에 붙여넣기(Ctrl+V) → 찾는 물질 선택 → <b>'MSDS 요약정보'</b>.</li>
-      <li>유해·위험 문구, 응급조치(눈·피부), 물리화학적 성질, 화재 시 대처를 <b>조사서에 적은 내용과 대조</b>합니다.</li>
-      <li>다르거나 빠진 내용은 조사서를 고친 뒤 '확인'을 체크합니다.</li></ol>`;
+  const MSDS_STEPS = `<p class="muted small" style="margin:6px 0">[안전보건공단 MSDS ↗]를 누르면 물질명이 복사되고 사이트가 열립니다 → 검색창에 붙여넣기 → 'MSDS 요약정보'를 조사서와 대조한 뒤 '확인' 체크.</p>`;
   // 시약 목록 + 하나씩 '확인' 체크. seen: 확인한 물질명 목록. onChange(seen)
   // all: 학교 시약 대장 (대장에 있는 시약은 사이트 안에서 요약 MSDS를 읽으면 확인 처리)
   function msdsPanel(el, names, seen, onChange, all = []) {
@@ -157,7 +151,7 @@
             : msdsBtns(n)}
             <label class="inline-check"><input type="checkbox" data-seen="${esc(n)}" ${seen.includes(n) ? "checked" : ""}> MSDS와 조사서 대조 확인</label></div>`).join("")}
         </div>
-        <p class="small ${names.every((n) => seen.includes(n)) ? "ok-t" : "warn"}">${names.every((n) => seen.includes(n)) ? "✅ 모든 시약의 MSDS를 확인했습니다." : `확인할 시약 ${names.filter((n) => !seen.includes(n)).length}개 남음 (모두 확인해야 온라인 제출됩니다)`}</p>`
+        <p class="small ${names.every((n) => seen.includes(n)) ? "ok-t" : "warn"}">${names.every((n) => seen.includes(n)) ? "✅ 확인했습니다." : `확인할 시약 ${names.filter((n) => !seen.includes(n)).length}개 남음 (모두 확인해야 온라인 제출됩니다)`}</p>`
         : '<p class="muted small">시약·시액 조사서에 물질명을 적으면 여기에 나타납니다. 시약을 쓰지 않으면 확인할 것이 없습니다.</p>';
       bindMsds(el);
       el.querySelectorAll("[data-rg]").forEach((b) => (b.onclick = async () => {
@@ -177,29 +171,6 @@
   const reagentNames = (d) => [...new Set((d.reagents || []).map((r) => r && (r.name || "").trim()).filter(Boolean))];
   const MSDS_SEEN = "sci-msds-seen";
 
-  // 메뉴 'MSDS 확인': 작성 중인 신청서의 시약을 한 번 더 확인 + 아무 물질이나 찾아보기
-  async function msdsView() {
-    const draft = ls.get(DRAFT_LAB) || {};
-    const names = reagentNames(draft);
-    view.innerHTML = `
-      <h1>MSDS 확인</h1>
-      <p class="lead">실험에 쓰는 시약의 물질안전보건자료(MSDS)를 안전보건공단 사이트에서 한 번 더 확인합니다.</p>
-      <div class="card"><h2>학교 시약 요약 MSDS</h2><div id="msdsSchool"></div></div>
-      <div class="card"><h2>작성 중인 실험실 신청서의 시약</h2>${MSDS_STEPS}<div id="msdsDraft"></div>
-        <div class="actions"><a class="btn" href="#/apply">실험실 신청서로 돌아가기</a></div></div>
-      <form class="card" id="msdsFind"><h2>학교 대장에 없는 물질 찾아보기 (안전보건공단)</h2>
-        <div class="actions"><input name="q" placeholder="물질명 (예: 염산, 수산화 나트륨) 또는 CAS 번호" style="flex:1;min-width:220px" required>
-          <button class="btn">찾기</button></div><div id="msdsOne" style="margin-top:10px"></div></form>`;
-    const { all } = await window.Reagents.picker($("#msdsSchool"));
-    msdsPanel($("#msdsDraft"), names, ls.get(MSDS_SEEN) || [], (seen) => ls.set(MSDS_SEEN, seen), all);
-    $("#msdsFind").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const q = new FormData(e.target).get("q").trim(); if (!q) return;
-      $("#msdsOne").innerHTML = `<div class="msds-row"><b>${esc(q)}</b>${msdsBtns(q)}</div>`;
-      bindMsds($("#msdsOne"));
-    });
-  }
-
   // ---------- 실험실 사용 신청 (학교 A4 양식 3종) ----------
   async function applyView() {
     let events = [], eventsDate = null; // 고른 날짜의 일정만 불러와 겹침 확인
@@ -218,20 +189,26 @@
       <p id="conflict" class="warn"></p>
       <p class="muted small">작성 중인 내용은 이 기기에 자동 임시저장됩니다. 사용하는 시약이 여러 개면 조사서를 추가하세요.
         이름·지도교사 칸은 한글만, 수량 칸은 한글·숫자만 입력됩니다.</p>
-      <details class="card" id="msdsCard" open><summary><b>🧪 시약 담기 · MSDS 확인</b> <span class="muted small" id="msdsSum"></span></summary>
-        <p class="small" style="margin:8px 0 4px"><b>학교 시약에서 찾아 담기</b> — 요약 MSDS를 끝까지 읽으면 시약·시액 조사서가 자동으로 채워집니다.</p>
+      <div class="card" id="msdsCard">
+        <div class="actions" style="justify-content:space-between"><b>🧪 사용할 시약</b><span class="muted small" id="msdsSum"></span></div>
+        <p class="muted small" style="margin:4px 0 8px">[MSDS 확인]을 눌러 읽어야 [+ 담기]가 됩니다. 담으면 시약·시액 조사서가 자동으로 채워집니다.</p>
         <div id="rgPick"></div>
-        ${MSDS_STEPS}<div id="msdsBox"></div></details>
+        <div id="msdsOther"><p class="small" style="margin:12px 0 0"><b>목록에 없는 시약</b></p>${MSDS_STEPS}<div id="msdsBox"></div></div>
+      </div>
       <div class="sheet-scroll" id="sheets"></div>`;
     const box = $("#sheets");
     Forms.bindOnly(box);
     let seen = ls.get(MSDS_SEEN) || [];
     const msdsSum = () => { const n = reagentNames(data); $("#msdsSum").textContent = n.length ? `시약 ${n.length}개 중 ${n.filter((x) => seen.includes(x)).length}개 확인` : "시약 없음"; };
-    const rg = await window.Reagents.picker($("#rgPick"), { onTake: (r) => {
+    const K = window.Reagents.keyOf;
+    const rg = await window.Reagents.picker($("#rgPick"), {
+      isSeen: (n) => seen.includes(n),
+      markSeen: (n) => { seen = [...new Set([...seen, n])]; ls.set(MSDS_SEEN, seen); msdsSum(); },
+      isTaken: (n) => reagentNames(data).some((x) => K(x) === K(n)),
+      onTake: (r) => {
       // 담기: 같은 시약 조사서가 있으면 그 장, 없으면 빈 장, 그것도 없으면 새 장에 요약 MSDS를 채움
       data = read();
       const rs = data.reagents && data.reagents.length ? data.reagents : [{}];
-      const K = window.Reagents.keyOf;
       let i = rs.findIndex((x) => x && K(x.name) === K(r.name));
       if (i < 0) i = rs.findIndex((x) => !x || !Object.values(x).some(Boolean));
       if (i < 0) { rs.push({}); i = rs.length - 1; }
@@ -241,7 +218,15 @@
       draw(); update();
       box.querySelectorAll(".a4")[i + 1]?.scrollIntoView({ behavior: "smooth" });
     } });
-    const msds = msdsPanel($("#msdsBox"), reagentNames(data), seen, (v) => { seen = v; ls.set(MSDS_SEEN, v); msdsSum(); }, rg.all);
+    // 목록에 없는 시약만 아래 칸에서 안전보건공단으로 확인 (목록에 있는 시약은 위에서 MSDS 확인)
+    const others = (names) => names.filter((n) => !window.Reagents.find(rg.all, n));
+    const msds = msdsPanel($("#msdsBox"), others(reagentNames(data)), seen, (v) => {
+      // 아래 칸은 목록에 없는 시약만 다루므로, 위에서 확인한 시약 기록은 지우지 않음
+      const keep = seen.filter((n) => window.Reagents.find(rg.all, n));
+      seen = [...new Set([...keep, ...v])]; ls.set(MSDS_SEEN, seen); msdsSum();
+    }, rg.all);
+    const showOther = () => { $("#msdsOther").hidden = !others(reagentNames(data)).length; };
+    showOther();
     msdsSum();
     let lastNames = reagentNames(data).join("|");
     let lastSeen = seen;
@@ -251,7 +236,11 @@
       data = { ...Forms.syncMirrors(box).data, team: $("#team").value.trim() };
       ls.set(DRAFT_LAB, data);
       const names = reagentNames(data);
-      if (names.join("|") !== lastNames || seen !== lastSeen) { lastNames = names.join("|"); lastSeen = seen; msds.update(names, seen); }
+      if (names.join("|") !== lastNames || seen !== lastSeen) {
+        lastNames = names.join("|"); lastSeen = seen;
+        msds.update(others(names), seen.filter((n) => !window.Reagents.find(rg.all, n)));
+        rg.redraw(); showOther();
+      }
       if (data.date && data.date !== eventsDate) {
         eventsDate = data.date;
         Store.listEvents({ from: data.date, to: addDays(data.date, 1) }).then((l) => { events = l; if (eventsDate === data.date) update(); }).catch(() => {});
@@ -299,9 +288,9 @@
       if (!d.sign?.applicant) miss.push("신청자 서명 (신청서 맨 아래 (자필서명) 칸)");
       if (!d.agree) miss.push("준수사항 서약 체크 (신청서 맨 아래)");
       const unseen = reagentNames(d).filter((n) => !seen.includes(n));
-      if (unseen.length) miss.push(`MSDS 확인 (위쪽 'MSDS 확인'에서 ${unseen.join(", ")})`);
+      if (unseen.length) miss.push(`MSDS 확인 (위쪽 '사용할 시약'에서 ${unseen.join(", ")})`);
       if (miss.length) {
-        if (unseen.length) $("#msdsCard").open = true;
+        if (unseen.length) $("#msdsCard").scrollIntoView({ behavior: "smooth" });
         return alert("다음 항목을 채워 주세요:\n- " + miss.join("\n- "));
       }
       const badOnly = Forms.onlyProblems(box);

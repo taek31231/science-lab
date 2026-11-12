@@ -23,14 +23,15 @@
     ["smell", "냄새"], ["melt", "녹는점"], ["boil", "끓는점"], ["flash", "인화점"],
     ["stability", "안정성 및 반응성"], ["fire", "폭발·화재 시 대처"], ["handling", "취급·보관 주의"]
   ];
-  const BASE = [["name", "물질명"], ["aliases", "다른 이름"], ["cas", "CAS 번호"]];
+  const BASE = [["name", "물질명"], ["aliases", "다른 이름"], ["cas", "CAS 번호"], ["pdf", "MSDS 요약 PDF 주소"]];
   const STOCK = [["location", "보관 위치"], ["qty", "보유 수량"]];
   const PUB_KEYS = [...BASE, ...MSDS].map(([k]) => k);
   // 조사서(신청서) 칸 ← 요약 MSDS
   const TO_SHEET = ["hazard", "eye", "skin", "smell", "melt", "boil", "flash", "stability", "fire"];
   // 엑셀 머리글 → 항목 (띄어쓰기 무시, 앞에서부터 먼저 맞는 것)
   const HEAD = [
-    ["name", /^(물질명|시약명|시약|품명|화학물질명|이름)$/], ["aliases", /(다른이름|별칭|영문명|이명)/], ["cas", /cas/],
+    ["name", /^(물질명|시약명|시약|품명|화학물질명|이름)$/], ["aliases", /(다른이름|별칭|영문명|이명|화학식)/], ["cas", /cas/],
+    ["pdf", /(pdf|요약정보|msds주소|msds링크|링크|url)/],
     ["location", /(보관|위치|장소)/], ["qty", /(수량|재고|보유)/],
     ["signal", /신호어/], ["pictos", /그림문자|픽토/], ["hazard", /(유해|위험문구|위험성)/],
     ["eye", /눈/], ["skin", /피부/], ["inhale", /흡입/], ["swallow", /(먹었|삼켰|섭취)/],
@@ -144,11 +145,12 @@
             <div><b style="font-size:18px">🧪 ${esc(r.name)}</b> ${r.signal ? `<span class="badge ${r.signal === "위험" ? "rejected" : "pending"}">${esc(r.signal)}</span>` : ""}
               <div class="muted small">${[r.aliases, r.cas && "CAS " + r.cas].filter(Boolean).map(esc).join(" · ")}</div></div>
             <button type="button" class="btn ghost sm" data-x>닫기</button></div>
-          <div class="msds-body">${rows ? `<table class="msds-tbl">${rows}</table>` : '<p class="muted">등록된 요약 MSDS가 없습니다. 안전보건공단 MSDS를 확인하세요.</p>'}
+          <div class="msds-body">${rows ? `<table class="msds-tbl">${rows}</table>` : r.pdf ? "" : '<p class="muted">등록된 요약 MSDS가 없습니다. 안전보건공단 MSDS를 확인하세요.</p>'}
             ${opts.stock ? `<p class="small" style="margin:10px 0 0">📍 <b>보관 위치</b> ${esc(opts.stock.location || "-")} · <b>보유 수량</b> ${esc(opts.stock.qty || "-")}</p>` : ""}
+            ${/^https?:\/\//i.test(r.pdf || "") ? `<p style="margin:10px 0 0"><a class="btn sm" data-pdf href="${esc(r.pdf)}" target="_blank" rel="noopener noreferrer">📄 MSDS 요약정보 PDF 열기</a></p>` : ""}
             <p class="muted small" style="margin:10px 0 0">요약본입니다. 자세한 내용은 <a href="https://msds.kosha.or.kr/MSDSInfo/" target="_blank" rel="noopener noreferrer">안전보건공단 MSDS</a>에서 확인하세요.</p></div>
           ${opts.take ? `<div class="actions" style="justify-content:flex-end;margin-top:10px">
-            <span class="muted small" data-hint>끝까지 읽으면 버튼이 눌립니다 ↓</span>
+            <span class="muted small" data-hint>${r.pdf ? "PDF를 열거나 " : ""}끝까지 읽으면 버튼이 눌립니다 ↓</span>
             <button type="button" class="btn" data-ok disabled>${esc(opts.take)}</button></div>` : ""}
         </div>`;
       document.body.appendChild(back);
@@ -165,35 +167,53 @@
         body.addEventListener("scroll", check);
         // 한 화면에 다 보이면 잠깐 읽을 시간 뒤에 열림
         setTimeout(() => { if (body.scrollHeight <= body.clientHeight + 8) setTimeout(unlock, 2500); else check(); }, 50);
+        const pdf = back.querySelector("[data-pdf]");
+        if (pdf) pdf.addEventListener("click", unlock); // PDF를 열어 봤으면 확인 가능
         ok.onclick = () => close(true);
       }
     });
   }
 
+  // 신호어·그림문자 작은 표시 (◇ 부식성 · ◇ 위험)
+  const chips = (r) => [...String(r.pictos || "").split(/[,·\/]/).map((x) => x.trim()).filter(Boolean), r.signal]
+    .filter(Boolean).map((t) => `<span class="hz">◇ ${esc(t)}</span>`).join("");
+
   // ---------------- 검색 칸 ----------------
-  // onTake(r)가 있으면 '읽고 담기', 없으면 보기만
-  async function picker(el, { onTake, placeholder } = {}) {
+  // 시약 목록: 검색 + 시약마다 [MSDS 확인] → '확인함' → [+ 담기] (확인해야 담김)
+  // opts: onTake(r) 담기, isSeen(name)/markSeen(name) 확인 기록, isTaken(name) 이미 담았는지
+  async function picker(el, opts = {}) {
     let all = [];
     try { all = await list(); } catch (e) { console.warn("시약 목록을 불러오지 못함", e); }
-    el.innerHTML = `
-      <div class="actions"><input data-q placeholder="${esc(placeholder || "시약 이름·다른 이름·CAS 번호로 검색 (예: 염산)")}" style="flex:1;min-width:220px" autocomplete="off"></div>
-      <div class="rg-results" data-res></div>
-      <p class="muted small" style="margin:6px 0 0">${all.length ? `학교 시약 대장에 ${all.length}종이 있습니다.` : "아직 학교 시약 대장이 비어 있습니다."}
-        목록에 없는 시약은 조사서에 직접 적고, 아래 안전보건공단 MSDS로 확인하세요.</p>`;
+    const seen = opts.isSeen || (() => false), taken = opts.isTaken || (() => false);
+    el.innerHTML = all.length ? `
+      <input data-q placeholder="시약 이름·다른 이름·CAS 번호 검색 (예: 염산)" autocomplete="off" style="width:100%">
+      <div class="rg-list" data-res></div>`
+      : '<p class="muted small" style="margin:0">아직 학교 시약 목록이 없습니다. 쓰는 시약은 아래 조사서에 직접 적어 주세요.</p>';
+    if (!all.length) return { all, redraw() {} };
     const res = $("[data-res]", el), q = $("[data-q]", el);
     const draw = () => {
-      const hits = search(all, q.value);
-      res.innerHTML = q.value.trim() ? (hits.map((r, i) => `
-        <div class="msds-row"><b>${esc(r.name)}</b><span class="muted small">${esc([r.aliases, r.cas].filter(Boolean).join(" · "))}</span>
-          <button type="button" class="btn ${onTake ? "" : "ghost "}sm" data-i="${i}">${onTake ? "요약 MSDS 읽고 담기" : "요약 MSDS 보기"}</button></div>`).join("")
-        || '<p class="muted small" style="margin:6px 0">학교 시약 대장에 없는 이름입니다.</p>') : "";
-      res.querySelectorAll("[data-i]").forEach((b) => (b.onclick = async () => {
-        const r = hits[+b.dataset.i];
-        if (await showMsds(r, onTake ? { take: "읽었습니다 · 조사서에 담기" } : {})) { onTake(r); q.value = ""; draw(); }
+      const hits = q.value.trim() ? search(all, q.value) : all;
+      res.innerHTML = hits.map((r, i) => {
+        const ok = seen(r.name), got = taken(r.name);
+        return `<div class="rg-item">
+          <div class="rg-main"><b>${esc(r.name)}</b> <span class="muted small">${esc(r.aliases || "")}</span>
+            ${r.cas ? `<div class="muted small">CAS ${esc(r.cas)}</div>` : ""}
+            <div class="rg-chips">${chips(r)}</div>
+            <div class="actions" style="gap:8px;margin-top:4px"><button type="button" class="btn ghost sm" data-m="${i}">MSDS 확인</button>
+              <span class="small ${ok ? "ok-t" : "muted"}">${ok ? "☑ MSDS 확인함" : "☐ 아직 확인 안 함"}</span></div></div>
+          ${opts.onTake ? `<button type="button" class="btn ${got ? "ghost" : ""} sm" data-t="${i}" ${ok && !got ? "" : "disabled"}
+            title="${ok ? "" : "MSDS를 먼저 확인하세요"}">${got ? "담김 ✓" : "+ 담기"}</button>` : ""}
+        </div>`;
+      }).join("") || '<p class="muted small" style="margin:8px 0">학교 시약 목록에 없는 이름입니다. 아래 조사서에 직접 적어 주세요.</p>';
+      res.querySelectorAll("[data-m]").forEach((b) => (b.onclick = async () => {
+        const r = hits[+b.dataset.m];
+        if (await showMsds(r, opts.markSeen ? { take: "확인했습니다" } : {}) && opts.markSeen) { opts.markSeen(r.name); draw(); }
       }));
+      res.querySelectorAll("[data-t]").forEach((b) => (b.onclick = () => { opts.onTake(hits[+b.dataset.t]); draw(); }));
     };
     q.addEventListener("input", draw);
-    return { all };
+    draw();
+    return { all, redraw: draw };
   }
 
   // 요약 MSDS → 조사서 한 장 (물질명 + 같은 칸)
@@ -224,7 +244,7 @@
           ${all.map((r) => `<tr data-row="${esc(keyOf([r.name, r.aliases, r.cas].join(" ")))}">
             <td><b>${esc(r.name)}</b>${r.aliases ? `<br><span class="muted small">${esc(r.aliases)}</span>` : ""}</td><td>${esc(r.cas)}</td><td>${esc(r.signal)}</td>
             <td>${esc(stock[r.id]?.location || "")}</td><td>${esc(stock[r.id]?.qty || "")}</td>
-            <td>${filled(r)}/${MSDS.length} 항목 <button class="btn ghost sm" data-view="${esc(r.id)}">보기</button></td>
+            <td>${filled(r)}/${MSDS.length} 항목${r.pdf ? " · PDF" : ""} <button class="btn ghost sm" data-view="${esc(r.id)}">보기</button></td>
             <td><div class="actions"><button class="btn ghost sm" data-edit="${esc(r.id)}">수정</button><button class="btn bad sm" data-del="${esc(r.id)}">삭제</button></div></td></tr>`).join("")
             || '<tr><td colspan="7" class="muted">아직 등록된 시약이 없습니다. [엑셀 양식 받기]로 채워 올리거나 [＋ 시약 추가]를 누르세요.</td></tr>'}
         </table></div>
